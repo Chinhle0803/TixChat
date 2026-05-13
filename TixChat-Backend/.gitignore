@@ -12,6 +12,3 @@ build/
 *.md
 !.README.md
 .node_modules
-*node_modules
-*.yml
-.git_backup
