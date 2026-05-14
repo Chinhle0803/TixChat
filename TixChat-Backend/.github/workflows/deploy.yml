@@ -1,0 +1,120 @@
+name: Build & Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          NODE_ENV: ${{ vars.NODE_ENV }}
+          PORT: ${{ vars.PORT }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DYNAMODB_USERS_TABLE: ${{ vars.DYNAMODB_USERS_TABLE }}
+          DYNAMODB_CONVERSATIONS_TABLE: ${{ vars.DYNAMODB_CONVERSATIONS_TABLE }}
+          DYNAMODB_MESSAGES_TABLE: ${{ vars.DYNAMODB_MESSAGES_TABLE }}
+          DYNAMODB_PARTICIPANTS_TABLE: ${{ vars.DYNAMODB_PARTICIPANTS_TABLE }}
+          DYNAMODB_CALL_SESSIONS_TABLE: ${{ vars.DYNAMODB_CALL_SESSIONS_TABLE }}
+          DYNAMODB_NOTIFICATION_TOKENS_TABLE: ${{ vars.DYNAMODB_NOTIFICATION_TOKENS_TABLE }}
+          DYNAMODB_CALL_CONVERSATION_STATUS_INDEX: ${{ vars.DYNAMODB_CALL_CONVERSATION_STATUS_INDEX }}
+          JWT_EXPIRE: ${{ vars.JWT_EXPIRE }}
+          JWT_REFRESH_EXPIRE: ${{ vars.JWT_REFRESH_EXPIRE }}
+          AWS_SES_REGION: ${{ vars.AWS_SES_REGION }}
+          AWS_S3_REGION: ${{ vars.AWS_S3_REGION }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_AVATAR_FOLDER: ${{ vars.S3_AVATAR_FOLDER }}
+          S3_MESSAGE_FOLDER: ${{ vars.S3_MESSAGE_FOLDER }}
+          AWS_CHIME_REGION: ${{ vars.AWS_CHIME_REGION }}
+          CHIME_MEETING_REGION: ${{ vars.CHIME_MEETING_REGION }}
+          CALL_RING_TIMEOUT_SECONDS: ${{ vars.CALL_RING_TIMEOUT_SECONDS }}
+          REDIS_ENABLED: ${{ vars.REDIS_ENABLED }}
+          CLIENT_URL: ${{ secrets.CLIENT_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URLS: ${{ secrets.FRONTEND_URLS }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          AWS_SES_SENDER_EMAIL: ${{ secrets.AWS_SES_SENDER_EMAIL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          envs: NODE_ENV,PORT,AWS_REGION,DYNAMODB_USERS_TABLE,DYNAMODB_CONVERSATIONS_TABLE,DYNAMODB_MESSAGES_TABLE,DYNAMODB_PARTICIPANTS_TABLE,DYNAMODB_CALL_SESSIONS_TABLE,DYNAMODB_NOTIFICATION_TOKENS_TABLE,DYNAMODB_CALL_CONVERSATION_STATUS_INDEX,JWT_EXPIRE,JWT_REFRESH_EXPIRE,AWS_SES_REGION,AWS_S3_REGION,S3_BUCKET_NAME,S3_AVATAR_FOLDER,S3_MESSAGE_FOLDER,AWS_CHIME_REGION,CHIME_MEETING_REGION,CALL_RING_TIMEOUT_SECONDS,REDIS_ENABLED,CLIENT_URL,FRONTEND_URL,FRONTEND_URLS,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,JWT_SECRET,JWT_REFRESH_SECRET,AWS_SES_SENDER_EMAIL,REDIS_URL
+          script: |
+            REPO_DIR="/home/${{ secrets.EC2_USERNAME }}/TixChat-Backend"
+            
+            # Clone repo nếu chưa có
+            if [ ! -d "$REPO_DIR" ]; then
+              cd /home/${{ secrets.EC2_USERNAME }}
+              git clone https://github.com/Chinhle0803/TixChat-Backend.git
+            fi
+            
+            cd $REPO_DIR
+
+            # Pull code mới nhất
+            git pull origin main
+
+            # Tạo file env từ GitHub Actions secrets/vars
+            cat > .env.production <<EOF
+            NODE_ENV=${NODE_ENV:-development}
+            PORT=${PORT:-5000}
+            CLIENT_URL=${CLIENT_URL}
+            FRONTEND_URL=${FRONTEND_URL}
+            FRONTEND_URLS=${FRONTEND_URLS}
+            AWS_REGION=${AWS_REGION}
+            AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            DYNAMODB_USERS_TABLE=${DYNAMODB_USERS_TABLE}
+            DYNAMODB_CONVERSATIONS_TABLE=${DYNAMODB_CONVERSATIONS_TABLE}
+            DYNAMODB_MESSAGES_TABLE=${DYNAMODB_MESSAGES_TABLE}
+            DYNAMODB_PARTICIPANTS_TABLE=${DYNAMODB_PARTICIPANTS_TABLE}
+            DYNAMODB_CALL_SESSIONS_TABLE=${DYNAMODB_CALL_SESSIONS_TABLE}
+            DYNAMODB_NOTIFICATION_TOKENS_TABLE=${DYNAMODB_NOTIFICATION_TOKENS_TABLE}
+            DYNAMODB_CALL_CONVERSATION_STATUS_INDEX=${DYNAMODB_CALL_CONVERSATION_STATUS_INDEX}
+            JWT_SECRET=${JWT_SECRET}
+            JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+            JWT_EXPIRE=${JWT_EXPIRE}
+            JWT_REFRESH_EXPIRE=${JWT_REFRESH_EXPIRE}
+            AWS_SES_REGION=${AWS_SES_REGION}
+            AWS_SES_SENDER_EMAIL=${AWS_SES_SENDER_EMAIL}
+            AWS_S3_REGION=${AWS_S3_REGION}
+            S3_BUCKET_NAME=${S3_BUCKET_NAME}
+            S3_AVATAR_FOLDER=${S3_AVATAR_FOLDER}
+            S3_MESSAGE_FOLDER=${S3_MESSAGE_FOLDER}
+            AWS_CHIME_REGION=${AWS_CHIME_REGION}
+            CHIME_MEETING_REGION=${CHIME_MEETING_REGION}
+            CALL_RING_TIMEOUT_SECONDS=${CALL_RING_TIMEOUT_SECONDS}
+            REDIS_URL=${REDIS_URL}
+            REDIS_ENABLED=${REDIS_ENABLED}
+            EOF
+
+            # Build Docker image trực tiếp trên EC2
+            docker build --no-cache -t tixchat-backend:latest .
+
+            # Dừng và xóa container cũ (nếu có)
+            docker stop tixchat-backend || true
+            docker rm tixchat-backend || true
+
+            # Chạy container mới với biến môi trường từ file vừa tạo
+            docker run -d \
+              --name tixchat-backend \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              --env-file .env.production \
+              tixchat-backend:latest
+
+            echo "Deployment completed successfully!"
