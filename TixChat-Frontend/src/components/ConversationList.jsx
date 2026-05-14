@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { FiEdit3, FiUsers } from 'react-icons/fi'
 import '../styles/ConversationList.css'
-import { userService } from '../services/api'
+import { conversationService, userService } from '../services/api'
 import useAuthStore from '../store/authStore'
 
 const normalizeId = (value) => {
@@ -82,6 +82,16 @@ const getParticipantAvatar = (participant, profileMap = {}) => {
   return profileAvatar || directAvatar || ''
 }
 
+const getUserDisplayName = (user) => String(
+  user?.nickname ||
+  user?.displayName ||
+  user?.fullName ||
+  user?.username ||
+  'Người dùng'
+)
+
+const getUserAvatarUri = (user) => getAvatarValue(user)
+
 const getCounterpart = (conv, currentUserId) => {
   const participants = conv?.participants || []
   return participants.find((participant) => getParticipantId(participant) !== currentUserId) || participants[0]
@@ -148,9 +158,13 @@ const ConversationList = ({
   onOpenCreateGroup,
   pendingRequestCount = 0,
   onSearch,
+  onStartConversation,
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
+  const [searchResults, setSearchResults] = useState({ conversations: [], users: [], suggestions: [] })
+  const [searching, setSearching] = useState(false)
+  const [searchActionLoading, setSearchActionLoading] = useState({})
   const [profileMap, setProfileMap] = useState({})
   const [failedAvatarKeys, setFailedAvatarKeys] = useState(() => new Set())
   const [nowTs, setNowTs] = useState(Date.now())
@@ -250,6 +264,42 @@ const ConversationList = ({
     }
   }, [missingProfileIds])
 
+  useEffect(() => {
+    let cancelled = false
+    const keyword = searchQuery.trim()
+
+    if (!keyword) {
+      setSearchResults({ conversations: [], users: [], suggestions: [] })
+      setSearching(false)
+      return undefined
+    }
+
+    const timer = window.setTimeout(async () => {
+      setSearching(true)
+      try {
+        const response = await conversationService.searchConversations(keyword)
+        if (cancelled) return
+        setSearchResults({
+          conversations: response?.data?.conversations || [],
+          users: response?.data?.users || [],
+          suggestions: response?.data?.suggestions || [],
+        })
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('⚠️ Search conversations failed:', error?.message || error)
+          setSearchResults({ conversations: [], users: [], suggestions: [] })
+        }
+      } finally {
+        if (!cancelled) setSearching(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [searchQuery])
+
   const handleSearch = (e) => {
     setSearchQuery(e.target.value)
     if (onSearch) {
@@ -342,6 +392,25 @@ const ConversationList = ({
     return getParticipantId(otherParticipant)
   }
 
+  const renderSearchAvatar = (label, avatar) => (
+    avatar ? (
+      <img src={avatar} alt={label} />
+    ) : (
+      <div className="avatar-placeholder">
+        {(String(label || '?')[0] || '?').toUpperCase()}
+      </div>
+    )
+  )
+
+  const withSearchActionLoading = async (key, action) => {
+    setSearchActionLoading((current) => ({ ...current, [key]: true }))
+    try {
+      await action()
+    } finally {
+      setSearchActionLoading((current) => ({ ...current, [key]: false }))
+    }
+  }
+
   const isUserOnline = (userId) => {
     return onlineUserSet.has(normalizeId(userId))
   }
@@ -369,6 +438,11 @@ const ConversationList = ({
     if (activeFilter === 'groups') return isGroup
     return Boolean(conversationId)
   })
+
+  const matchedConversations = Array.isArray(searchResults?.conversations) ? searchResults.conversations : []
+  const visibleSearchUsers = Array.isArray(searchResults?.users) && searchResults.users.length
+    ? searchResults.users
+    : (Array.isArray(searchResults?.suggestions) ? searchResults.suggestions : [])
 
   return (
     <div className="conversation-list">
@@ -428,7 +502,145 @@ const ConversationList = ({
       </div>
 
       <div className="conversation-items">
-        {filteredConversations.length === 0 ? (
+        {searchQuery.trim() ? (
+          <div className="conversation-search-results">
+            <section className="conversation-search-section">
+              <div className="conversation-search-section-header">
+                <h3>Tin nhắn và cuộc trò chuyện</h3>
+                <span>
+                  {matchedConversations.length
+                    ? `${matchedConversations.length} cuộc trò chuyện khớp`
+                    : 'Chưa có cuộc trò chuyện khớp'}
+                </span>
+              </div>
+              {matchedConversations.length ? (
+                matchedConversations.map((conv) => {
+                  const conversationId = normalizeId(conv?._id || conv?.conversationId)
+                  const avatar = getConversationAvatar(conv)
+                  const title = getConversationName(conv)
+                  const preview = getLastMessage(conv)
+                  return (
+                    <div
+                      key={`search-conv-${conversationId}`}
+                      className="conversation-search-item"
+                      onClick={() => onSelectConversation(conv)}
+                    >
+                      <div className="conversation-avatar">
+                        {renderSearchAvatar(title, avatar)}
+                      </div>
+                      <div className="conversation-search-main">
+                        <div className="conversation-search-head">
+                          <strong>{title}</strong>
+                          <span className="search-match-badge">{conv?.matchCount || 1} khớp</span>
+                        </div>
+                        <p>{preview}</p>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="conversation-search-empty">Không có cuộc trò chuyện phù hợp.</div>
+              )}
+            </section>
+
+            <section className="conversation-search-section">
+              <div className="conversation-search-section-header">
+                <h3>{searchResults?.users?.length ? 'Người dùng' : 'Gợi ý kết bạn'}</h3>
+                <span>
+                  {searchResults?.users?.length
+                    ? 'Mở chat cũ, tạo chat mới hoặc kết bạn'
+                    : 'Không thấy kết quả khớp, đây là vài người bạn có thể kết bạn'}
+                </span>
+              </div>
+              {searching ? (
+                <div className="conversation-search-empty">Đang tìm kiếm...</div>
+              ) : visibleSearchUsers.length ? (
+                visibleSearchUsers.map((foundUser) => {
+                  const targetUserId = normalizeId(foundUser?.userId || foundUser?._id || foundUser?.id)
+                  const isFriend = Boolean(foundUser?.isFriend || foundUser?.relationStatus === 'friend')
+                  const requestSent = Boolean(foundUser?.requestSent || foundUser?.relationStatus === 'request_sent')
+                  const requestReceived = Boolean(foundUser?.requestReceived || foundUser?.relationStatus === 'request_received')
+                  const existingConversation = conversations.find((conversation) => {
+                    const participantIds = (conversation?.participants || []).map((participant) => getParticipantId(participant))
+                    return participantIds.includes(currentUserId) && participantIds.includes(targetUserId)
+                  })
+                  const actionKey = `web-search-${targetUserId}`
+
+                  return (
+                    <div key={`search-user-${targetUserId}`} className="conversation-search-item user-result">
+                      <div className="conversation-avatar">
+                        {renderSearchAvatar(getUserDisplayName(foundUser), getUserAvatarUri(foundUser))}
+                      </div>
+                      <div className="conversation-search-main">
+                        <div className="conversation-search-head">
+                          <strong>{getUserDisplayName(foundUser)}</strong>
+                        </div>
+                        <p>
+                          {isFriend
+                            ? existingConversation || foundUser?.existingConversationId
+                              ? 'Đã kết bạn • Mở cuộc trò chuyện cũ'
+                              : 'Đã kết bạn • Tạo cuộc trò chuyện mới'
+                            : requestReceived
+                              ? 'Đã nhận lời mời kết bạn'
+                              : requestSent
+                                ? 'Đã gửi lời mời kết bạn'
+                                : 'Chưa là bạn bè • Gửi lời mời kết bạn'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={`conversation-search-action ${!isFriend ? 'secondary' : ''}`}
+                        disabled={Boolean(searchActionLoading[actionKey]) || requestSent}
+                        onClick={async (event) => {
+                          event.stopPropagation()
+                          await withSearchActionLoading(actionKey, async () => {
+                            if (isFriend) {
+                              if (existingConversation) {
+                                onSelectConversation(existingConversation)
+                                return
+                              }
+                              await onStartConversation?.(targetUserId)
+                              return
+                            }
+                            if (requestReceived) {
+                              return
+                            }
+                            await userService.sendFriendRequest(targetUserId)
+                            setSearchResults((current) => ({
+                              ...current,
+                              users: (current.users || []).map((item) => (
+                                normalizeId(item?.userId || item?._id || item?.id) === targetUserId
+                                  ? { ...item, requestSent: true, relationStatus: 'request_sent' }
+                                  : item
+                              )),
+                              suggestions: (current.suggestions || []).map((item) => (
+                                normalizeId(item?.userId || item?._id || item?.id) === targetUserId
+                                  ? { ...item, requestSent: true, relationStatus: 'request_sent' }
+                                  : item
+                              )),
+                            }))
+                          })
+                        }}
+                      >
+                        {searchActionLoading[actionKey]
+                          ? '...'
+                          : isFriend
+                            ? (existingConversation || foundUser?.existingConversationId ? 'Mở chat' : 'Nhắn tin')
+                            : requestReceived
+                              ? 'Đã nhận'
+                              : requestSent
+                                ? 'Đã gửi'
+                                : 'Kết bạn'}
+                      </button>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="conversation-search-empty">Không có gợi ý phù hợp.</div>
+              )}
+            </section>
+          </div>
+        ) : filteredConversations.length === 0 ? (
           <div className="empty-state">Chưa có cuộc trò chuyện</div>
         ) : (
           filteredConversations.map((conv) => {

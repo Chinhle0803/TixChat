@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom'
 import {
   FiAlertTriangle,
   FiCamera,
   FiCheckCircle,
+  FiCornerUpLeft,
+  FiCrosshair,
   FiFilter,
   FiImage,
   FiMap,
   FiMapPin,
   FiMessageCircle,
+  FiMinus,
   FiPlus,
   FiRefreshCcw,
   FiSend,
@@ -17,6 +21,17 @@ import {
   FiUsers,
   FiX,
 } from 'react-icons/fi'
+import {
+  FaBolt,
+  FaCarSide,
+  FaDroplet,
+  FaHelmetSafety,
+  FaLightbulb,
+  FaLocationDot,
+  FaTrashCan,
+  FaTree,
+  FaWater,
+} from 'react-icons/fa6'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import apiClient, { API_URL, postService, userService } from '../services/api'
@@ -37,15 +52,33 @@ const categories = [
 ]
 
 const categoryMarkerSymbols = {
-  electricity: '⚡',
-  water: '💧',
-  traffic: '🚗',
-  tree: '🌳',
-  flood: '🌊',
-  waste: '🗑',
-  street_light: '💡',
-  construction: '🚧',
-  other: '📍',
+  electricity: FaBolt,
+  water: FaDroplet,
+  traffic: FaCarSide,
+  tree: FaTree,
+  flood: FaWater,
+  waste: FaTrashCan,
+  street_light: FaLightbulb,
+  construction: FaHelmetSafety,
+  other: FaLocationDot,
+}
+
+const categoryMarkerColors = {
+  electricity: '#f59e0b',
+  water: '#0ea5e9',
+  traffic: '#ef4444',
+  tree: '#16a34a',
+  flood: '#2563eb',
+  waste: '#7c3aed',
+  street_light: '#facc15',
+  construction: '#ea580c',
+  other: '#64748b',
+}
+
+const statusMarkerColors = {
+  pending: '#f59e0b',
+  in_progress: '#0ea5e9',
+  resolved: '#22c55e',
 }
 
 const statuses = [
@@ -61,13 +94,9 @@ const severities = [
   ['critical', 'Khẩn cấp'],
 ]
 
-const commentReactionTypes = [
-  ['heart', 'Tim', '♥'],
-  ['smile', 'Cảm xúc', '☺'],
-]
-
 const MAX_POST_IMAGES = 6
 const MAX_POST_IMAGE_SIZE = 8 * 1024 * 1024
+const DEFAULT_FEED_PROVINCE = 'Thành phố Hồ Chí Minh'
 
 const categoryLabel = (value) => categories.find(([key]) => key === value)?.[1] || 'Khác'
 const statusLabel = (value) => statuses.find(([key]) => key === value)?.[1] || 'Chờ xử lý'
@@ -75,6 +104,70 @@ const severityLabel = (value) => severities.find(([key]) => key === value)?.[1] 
 const parseImageUrls = (value = '') => String(value).split(/\n|,/).map((item) => item.trim()).filter(Boolean)
 const getPostImages = (post) => Array.isArray(post?.images) ? post.images.filter(Boolean) : []
 const getCurrentUserId = (user) => String(user?.userId || user?._id || user?.id || '')
+const toComparableRegion = (value = '') => String(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd')
+  .replace(/Đ/g, 'D')
+  .toLowerCase()
+  .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+const toRegionKey = (value = '') => {
+  const comparable = toComparableRegion(value)
+  if (!comparable) return ''
+  if (
+    comparable.includes('ho chi minh') ||
+    comparable.includes('sai gon') ||
+    comparable === 'hcm' ||
+    comparable === 'tphcm' ||
+    comparable === 'tp hcm'
+  ) return 'ho chi minh'
+  if (comparable.includes('ha noi')) return 'ha noi'
+  const districtNumber = comparable.match(/^(q|quan)\s*(\d{1,2})$/)
+  if (districtNumber) return `quan ${districtNumber[2]}`
+  if (comparable.includes('thu duc')) return 'thu duc'
+  return comparable
+}
+const getFeedRegion = (user) => ({
+  province: String(user?.province || user?.location?.province || DEFAULT_FEED_PROVINCE).trim(),
+  district: String(user?.district || user?.location?.district || '').trim(),
+})
+const rankPostForRegion = (post, region) => {
+  const userProvince = toRegionKey(region?.province)
+  const userDistrict = toRegionKey(region?.district)
+  const postProvince = toRegionKey(post?.location?.province)
+  const postDistrict = toRegionKey(post?.location?.district)
+  if (userDistrict && userProvince && userDistrict === postDistrict && userProvince === postProvince) return 0
+  if (userProvince && userProvince === postProvince) return 1
+  return 2
+}
+const compareCreatedAtDesc = (a, b) => {
+  const createdAtA = Date.parse(a?.createdAt || '')
+  const createdAtB = Date.parse(b?.createdAt || '')
+  const hasCreatedAtA = Number.isFinite(createdAtA)
+  const hasCreatedAtB = Number.isFinite(createdAtB)
+
+  if (hasCreatedAtA && hasCreatedAtB && createdAtA !== createdAtB) {
+    return createdAtB - createdAtA
+  }
+  if (hasCreatedAtA !== hasCreatedAtB) {
+    return hasCreatedAtB ? 1 : -1
+  }
+  return String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''))
+}
+const sortPostsForFeed = (posts, region) => {
+  return [...posts].sort((a, b) => {
+    const regionDiff = rankPostForRegion(a, region) - rankPostForRegion(b, region)
+    if (regionDiff !== 0) return regionDiff
+    return compareCreatedAtDesc(a, b)
+  })
+}
+const matchesFeedFilters = (post, filters) => {
+  if (filters?.category && post?.category !== filters.category) return false
+  if (filters?.status && post?.status !== filters.status) return false
+  return true
+}
 const getAuthorId = (post) => String(post?.authorId || '')
 const getPostCoordinates = (post) => {
   const lat = Number(post?.location?.lat)
@@ -126,6 +219,10 @@ const getTotalReactionCount = (post) => Object.values(post?.reactions || {}).red
   (total, users) => total + (Array.isArray(users) ? users.length : 0),
   0
 )
+const upsertCommentInCollection = (comments = [], nextComment) => {
+  if (!nextComment?.commentId) return comments
+  return [nextComment, ...comments.filter((item) => item?.commentId !== nextComment.commentId)]
+}
 
 const getAuthorLabel = (item, profileMap = {}, currentUser = null) => {
   const authorId = getAuthorId(item)
@@ -135,6 +232,23 @@ const getAuthorLabel = (item, profileMap = {}, currentUser = null) => {
   }
   const profileName = getProfileDisplayName(profileMap[authorId])
   return profileName || 'Cư dân đô thị'
+}
+
+const getAuthorAvatar = (item, profileMap = {}, currentUser = null) => {
+  const authorId = getAuthorId(item)
+  if (authorId && authorId === getCurrentUserId(currentUser)) {
+    return String(currentUser?.avatar || currentUser?.photoURL || currentUser?.profilePicture || '')
+  }
+
+  return String(
+    item?.user?.avatar ||
+    item?.user?.photoURL ||
+    item?.user?.profilePicture ||
+    profileMap[authorId]?.avatar ||
+    profileMap[authorId]?.photoURL ||
+    profileMap[authorId]?.profilePicture ||
+    ''
+  )
 }
 
 const getInitial = (item, profileMap = {}, currentUser = null) => getAuthorLabel(item, profileMap, currentUser).charAt(0).toUpperCase()
@@ -163,14 +277,18 @@ const createPostPopupNode = (post) => {
   const wrap = document.createElement('div')
   wrap.className = 'urban-map-popup'
 
+  const head = document.createElement('div')
+  head.className = 'urban-map-popup-head'
+
   const title = document.createElement('strong')
   title.textContent = categoryLabel(post.category)
-  wrap.appendChild(title)
+  head.appendChild(title)
 
   const status = document.createElement('span')
   status.className = `urban-popup-status status-${post.status}`
   status.textContent = statusLabel(post.status)
-  wrap.appendChild(status)
+  head.appendChild(status)
+  wrap.appendChild(head)
 
   const content = document.createElement('p')
   content.textContent = post.content || 'Không có mô tả'
@@ -190,15 +308,18 @@ const createPostPopupNode = (post) => {
   return wrap
 }
 
-const getCategoryMarkerSymbol = (category) => categoryMarkerSymbols[category] || categoryMarkerSymbols.other
+const getCategoryMarkerIcon = (category) => categoryMarkerSymbols[category] || categoryMarkerSymbols.other
+const renderCategoryMarkerIcon = (category, className) => {
+  const Icon = getCategoryMarkerIcon(category)
+  return renderToStaticMarkup(<Icon className={className} aria-hidden="true" focusable="false" />)
+}
 
-const UrbanShell = ({ children }) => (
+const UrbanShell = ({ children, mainClassName = '', navClassName = '' }) => (
   <main className="urban-page">
-    <section className="urban-main">
-      <nav className="urban-top-nav" aria-label="Điều hướng đô thị">
+    <section className={`urban-main ${mainClassName}`.trim()}>
+      <nav className={`urban-top-nav ${navClassName}`.trim()} aria-label="Điều hướng đô thị">
         <NavLink to="/urban" end>Bảng tin</NavLink>
         <NavLink to="/urban/map">Bản đồ</NavLink>
-        <NavLink to="/urban/assistant">Trợ lý</NavLink>
       </nav>
       {children}
     </section>
@@ -351,18 +472,45 @@ const LocationMapPicker = ({ lat, lng, onPick }) => {
   )
 }
 
-const PostCard = ({ post, onReact, currentUser, currentUserId, profileMap }) => {
+const PostCard = ({
+  post,
+  onReact,
+  currentUser,
+  currentUserId,
+  profileMap,
+  isCommentsExpanded = false,
+  comments = [],
+  commentDraft = '',
+  replyDraft = '',
+  replyingTo = '',
+  loadingComments = false,
+  onToggleComments,
+  onCommentDraftChange,
+  onSubmitComment,
+  onStartReply,
+  onCancelReply,
+  onReplyDraftChange,
+  onSubmitReply,
+  onCommentReact,
+}) => {
   const images = getPostImages(post)
   const visibleImages = images.slice(0, 3)
   const hiddenImageCount = Math.max(images.length - visibleImages.length, 0)
   const coordinates = getPostCoordinates(post)
   const hasEmotion = hasReacted(post, 'like', currentUserId)
   const hasMarkedImportant = hasReacted(post, 'urgent', currentUserId)
+  const commentThreads = useMemo(() => groupComments(comments), [comments])
 
   return (
     <article className="urban-post-card">
       <div className="urban-post-author">
-        <div className="urban-avatar">{getInitial(post, profileMap, currentUser)}</div>
+        <div className="urban-avatar">
+          {getAuthorAvatar(post, profileMap, currentUser) ? (
+            <img src={getAuthorAvatar(post, profileMap, currentUser)} alt={getAuthorLabel(post, profileMap, currentUser)} loading="lazy" />
+          ) : (
+            getInitial(post, profileMap, currentUser)
+          )}
+        </div>
         <div className="urban-author-main">
           <div className="urban-author-line">
             <Link to={`/urban/posts/${post.postId}`}>{getAuthorLabel(post, profileMap, currentUser)}</Link>
@@ -429,7 +577,9 @@ const PostCard = ({ post, onReact, currentUser, currentUserId, profileMap }) => 
         >
           <FiSmile /> Cảm xúc {getReactionCount(post, 'like') || ''}
         </button>
-        <Link to={`/urban/posts/${post.postId}`}><FiMessageCircle /> Bình luận {post.commentCount || ''}</Link>
+        <button type="button" className={isCommentsExpanded ? 'active' : ''} onClick={() => onToggleComments(post.postId)}>
+          <FiMessageCircle /> Bình luận {post.commentCount || ''}
+        </button>
         <button
           type="button"
           className={hasMarkedImportant ? 'active important' : 'important'}
@@ -439,6 +589,49 @@ const PostCard = ({ post, onReact, currentUser, currentUserId, profileMap }) => 
           <FiAlertTriangle /> Quan trọng {getReactionCount(post, 'urgent') || ''}
         </button>
       </footer>
+      {isCommentsExpanded ? (
+        <section className="urban-inline-comments">
+          <form
+            className="urban-inline-comment-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              onSubmitComment(post.postId)
+            }}
+          >
+            <input
+              value={commentDraft}
+              onChange={(event) => onCommentDraftChange(post.postId, event.target.value)}
+              placeholder="Viết bình luận nhanh..."
+            />
+            <button type="submit" className="urban-inline-send" aria-label="Gửi bình luận">
+              <FiSend />
+            </button>
+          </form>
+          {loadingComments ? <p className="urban-muted">Đang tải bình luận...</p> : null}
+          {!loadingComments && commentThreads.length === 0 ? <p className="urban-muted">Chưa có bình luận nào.</p> : null}
+          {!loadingComments && commentThreads.length > 0 ? (
+            <div className="urban-inline-comment-tree">
+              {commentThreads.map((item) => (
+                <CommentItem
+                  key={item.commentId}
+                  item={item}
+                  replies={item.replies}
+                  profileMap={profileMap}
+                  currentUser={currentUser}
+                  currentUserId={currentUserId}
+                  replyingTo={replyingTo}
+                  replyText={replyDraft}
+                  onStartReply={onStartReply}
+                  onCancelReply={onCancelReply}
+                  onReplyTextChange={onReplyDraftChange}
+                  onSubmitReply={onSubmitReply}
+                  onReact={onCommentReact}
+                />
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </article>
   )
 }
@@ -464,24 +657,31 @@ export const UrbanFeedPage = () => {
   const [localImages, setLocalImages] = useState([])
   const [uploadingImages, setUploadingImages] = useState(false)
   const [profileMap, setProfileMap] = useState({})
+  const [expandedComments, setExpandedComments] = useState({})
+  const [commentsByPost, setCommentsByPost] = useState({})
+  const [loadingCommentsByPost, setLoadingCommentsByPost] = useState({})
+  const [commentDraftByPost, setCommentDraftByPost] = useState({})
+  const [replyingToByPost, setReplyingToByPost] = useState({})
+  const [replyDraftByPost, setReplyDraftByPost] = useState({})
   const imageInputRef = useRef(null)
   const cameraInputRef = useRef(null)
   const localImagesRef = useRef([])
   const loadingProfileIdsRef = useRef(new Set())
   const imagePreviewUrls = useMemo(() => parseImageUrls(form.imagesText), [form.imagesText])
   const currentUserId = useMemo(() => getCurrentUserId(currentUser), [currentUser])
+  const feedRegion = useMemo(() => getFeedRegion(currentUser), [currentUser])
 
   const missingAuthorIds = useMemo(() => {
     const ids = new Set()
-    posts.forEach((post) => {
-      const authorId = getAuthorId(post)
-      if (!authorId || profileMap[authorId] || loadingProfileIdsRef.current.has(authorId)) {
-        return
-      }
+    const collectAuthorId = (item) => {
+      const authorId = getAuthorId(item)
+      if (!authorId || profileMap[authorId] || loadingProfileIdsRef.current.has(authorId)) return
       ids.add(authorId)
-    })
+    }
+    posts.forEach(collectAuthorId)
+    Object.values(commentsByPost).flat().forEach(collectAuthorId)
     return Array.from(ids)
-  }, [posts, profileMap])
+  }, [commentsByPost, posts, profileMap])
 
   const applyPickedLocation = useCallback(({ lat: nextLat, lng: nextLng }) => {
     setForm((current) => ({
@@ -601,14 +801,17 @@ export const UrbanFeedPage = () => {
       const response = await postService.listPosts({
         category: filters.category || undefined,
         status: filters.status || undefined,
+        province: feedRegion.province || undefined,
+        district: feedRegion.district || undefined,
+        fallbackProvince: DEFAULT_FEED_PROVINCE,
       })
-      setPosts(response?.data?.posts || [])
+      setPosts(sortPostsForFeed(response?.data?.posts || [], feedRegion))
     } catch (err) {
       setError(err?.response?.data?.error || 'Không thể tải bảng tin')
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [feedRegion, filters])
 
   useEffect(() => {
     loadPosts()
@@ -620,21 +823,49 @@ export const UrbanFeedPage = () => {
     const upsertPost = (payload) => {
       const post = payload?.post
       if (!post?.postId) return
-      setPosts((current) => [post, ...current.filter((item) => item.postId !== post.postId)])
+      setPosts((current) => {
+        const next = [post, ...current.filter((item) => item.postId !== post.postId)]
+        const filtered = next.filter((item) => matchesFeedFilters(item, filters))
+        return sortPostsForFeed(filtered, feedRegion)
+      })
+    }
+    const upsertComment = (payload) => {
+      const postId = String(payload?.postId || '')
+      const comment = payload?.comment
+      if (!postId || !comment?.commentId) return
+      if (!expandedComments[postId] && !commentsByPost[postId]) return
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: upsertCommentInCollection(current[postId] || [], comment),
+      }))
+    }
+    const updateCommentReaction = (payload) => {
+      const postId = String(payload?.postId || '')
+      const comment = payload?.comment
+      if (!postId || !comment?.commentId) return
+      if (!expandedComments[postId] && !commentsByPost[postId]) return
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: upsertCommentInCollection(current[postId] || [], comment),
+      }))
     }
     socket.on('post:created', upsertPost)
     socket.on('post:updated', upsertPost)
     socket.on('post:status_changed', upsertPost)
     socket.on('post:reaction_updated', upsertPost)
     socket.on('post:comment_created', upsertPost)
+    socket.on('post:comment_created', upsertComment)
+    socket.on('post:comment_reaction_updated', updateCommentReaction)
     return () => {
       socket.off('post:created', upsertPost)
       socket.off('post:updated', upsertPost)
       socket.off('post:status_changed', upsertPost)
       socket.off('post:reaction_updated', upsertPost)
       socket.off('post:comment_created', upsertPost)
+      socket.off('post:comment_created', upsertComment)
+      socket.off('post:comment_reaction_updated', updateCommentReaction)
     }
-  }, [])
+  }, [commentsByPost, expandedComments, feedRegion, filters])
 
   const createPost = async (event) => {
     event.preventDefault()
@@ -656,6 +887,8 @@ export const UrbanFeedPage = () => {
           address: form.address,
           lat: form.lat ? Number(form.lat) : null,
           lng: form.lng ? Number(form.lng) : null,
+          fallbackProvince: feedRegion.province || DEFAULT_FEED_PROVINCE,
+          fallbackDistrict: feedRegion.district || undefined,
         },
       })
       resetComposer()
@@ -679,6 +912,81 @@ export const UrbanFeedPage = () => {
     }
   }
 
+  const loadCommentsForPost = useCallback(async (postId) => {
+    if (!postId) return
+    setLoadingCommentsByPost((current) => ({ ...current, [postId]: true }))
+    try {
+      const response = await postService.listComments(postId)
+      setCommentsByPost((current) => ({ ...current, [postId]: response?.data?.comments || [] }))
+    } catch (_) {
+      setCommentsByPost((current) => ({ ...current, [postId]: [] }))
+    } finally {
+      setLoadingCommentsByPost((current) => ({ ...current, [postId]: false }))
+    }
+  }, [])
+
+  const toggleInlineComments = useCallback(async (postId) => {
+    const nextExpanded = !expandedComments[postId]
+    setExpandedComments((current) => ({ ...current, [postId]: nextExpanded }))
+    if (nextExpanded && !commentsByPost[postId]) {
+      await loadCommentsForPost(postId)
+    }
+  }, [commentsByPost, expandedComments, loadCommentsForPost])
+
+  const submitInlineComment = async (postId) => {
+    const draft = String(commentDraftByPost[postId] || '').trim()
+    if (!draft) return
+    const response = await postService.createComment(postId, { content: draft })
+    const nextComment = response?.data?.comment
+    if (nextComment) {
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: upsertCommentInCollection(current[postId] || [], nextComment),
+      }))
+      setCommentDraftByPost((current) => ({ ...current, [postId]: '' }))
+    }
+    const nextPost = response?.data?.post
+    if (nextPost) {
+      setPosts((current) => current.map((item) => item.postId === nextPost.postId ? nextPost : item))
+    }
+  }
+
+  const submitReplyForPost = async (postId, parentComment) => {
+    const draft = String(replyDraftByPost[postId] || '').trim()
+    if (!draft || !parentComment?.commentId) return
+    const response = await postService.createComment(postId, {
+      content: draft,
+      parentCommentId: parentComment.commentId,
+    })
+    const nextComment = response?.data?.comment
+    if (nextComment) {
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: upsertCommentInCollection(current[postId] || [], nextComment),
+      }))
+      setReplyDraftByPost((current) => ({ ...current, [postId]: '' }))
+      setReplyingToByPost((current) => ({ ...current, [postId]: '' }))
+    }
+    const nextPost = response?.data?.post
+    if (nextPost) {
+      setPosts((current) => current.map((item) => item.postId === nextPost.postId ? nextPost : item))
+    }
+  }
+
+  const reactToCommentForPost = async (postId, targetComment, reactionType, isActive) => {
+    if (!targetComment?.commentId) return
+    const response = isActive
+      ? await postService.removeCommentReaction(postId, targetComment.commentId, reactionType)
+      : await postService.addCommentReaction(postId, targetComment.commentId, reactionType)
+    const updatedComment = response?.data?.comment
+    if (updatedComment) {
+      setCommentsByPost((current) => ({
+        ...current,
+        [postId]: upsertCommentInCollection(current[postId] || [], updatedComment),
+      }))
+    }
+  }
+
   return (
     <UrbanShell>
       <div className="urban-social-layout">
@@ -686,7 +994,9 @@ export const UrbanFeedPage = () => {
           <header className="urban-feed-top">
             <div>
               <h1>Bảng tin đô thị</h1>
-              <p>Cập nhật sự cố hạ tầng từ cộng đồng quanh bạn.</p>
+              <p>
+                Ưu tiên bài trong {feedRegion.district ? `${feedRegion.district}, ` : ''}{feedRegion.province || DEFAULT_FEED_PROVINCE}.
+              </p>
             </div>
             <button type="button" className="urban-icon-button" onClick={loadPosts} title="Làm mới">
               <FiRefreshCcw />
@@ -696,7 +1006,7 @@ export const UrbanFeedPage = () => {
           <section className="urban-composer">
             <div className="urban-avatar urban-avatar-soft">T</div>
             <button type="button" className="urban-composer-trigger" onClick={() => setShowComposer(true)}>
-              Khu vực của bạn đang có sự cố gì?
+              {feedRegion.district ? `${feedRegion.district} đang có sự cố gì?` : 'Khu vực của bạn đang có sự cố gì?'}
             </button>
           </section>
 
@@ -824,6 +1134,26 @@ export const UrbanFeedPage = () => {
                 currentUser={currentUser}
                 currentUserId={currentUserId}
                 profileMap={profileMap}
+                isCommentsExpanded={Boolean(expandedComments[post.postId])}
+                comments={commentsByPost[post.postId] || []}
+                commentDraft={commentDraftByPost[post.postId] || ''}
+                replyDraft={replyDraftByPost[post.postId] || ''}
+                replyingTo={replyingToByPost[post.postId] || ''}
+                loadingComments={Boolean(loadingCommentsByPost[post.postId])}
+                onToggleComments={toggleInlineComments}
+                onCommentDraftChange={(postId, value) => setCommentDraftByPost((current) => ({ ...current, [postId]: value }))}
+                onSubmitComment={submitInlineComment}
+                onStartReply={(item) => setReplyingToByPost((current) => ({ ...current, [post.postId]: item.commentId }))}
+                onCancelReply={() => {
+                  setReplyingToByPost((current) => ({ ...current, [post.postId]: '' }))
+                  setReplyDraftByPost((current) => ({ ...current, [post.postId]: '' }))
+                }}
+                onReplyDraftChange={(value) => setReplyDraftByPost((current) => ({ ...current, [post.postId]: value }))}
+                onSubmitReply={(event, item) => {
+                  event.preventDefault()
+                  submitReplyForPost(post.postId, item)
+                }}
+                onCommentReact={(item, reactionType, isActive) => reactToCommentForPost(post.postId, item, reactionType, isActive)}
               />
             ))}
             {!loading && posts.length === 0 ? <p className="urban-empty">Chưa có báo cáo phù hợp.</p> : null}
@@ -909,7 +1239,13 @@ const CommentItem = ({
 
   return (
     <div className="urban-comment">
-      <div className="urban-avatar urban-comment-avatar">{getInitial(item, profileMap, currentUser)}</div>
+      <div className="urban-avatar urban-comment-avatar">
+        {getAuthorAvatar(item, profileMap, currentUser) ? (
+          <img src={getAuthorAvatar(item, profileMap, currentUser)} alt={getAuthorLabel(item, profileMap, currentUser)} loading="lazy" />
+        ) : (
+          getInitial(item, profileMap, currentUser)
+        )}
+      </div>
       <div className="urban-comment-main">
         <div className="urban-comment-bubble">
           <div className="urban-comment-head">
@@ -919,23 +1255,19 @@ const CommentItem = ({
           <p>{item.content}</p>
         </div>
         <div className="urban-comment-actions">
-          {commentReactionTypes.map(([type, label, symbol]) => {
-            const isActive = hasReacted(item, type, currentUserId)
-            return (
-              <button
-                key={type}
-                type="button"
-                className={isActive ? 'active' : ''}
-                aria-pressed={isActive}
-                onClick={() => onReact(item, type, isActive)}
-              >
-                <span aria-hidden="true">{symbol}</span>
-                {label} {getReactionCount(item, type) || ''}
-              </button>
-            )
-          })}
-          <button type="button" onClick={() => onStartReply(item)}>
-            Trả lời
+          <button
+            type="button"
+            className={hasReacted(item, 'heart', currentUserId) ? 'active' : ''}
+            aria-pressed={hasReacted(item, 'heart', currentUserId)}
+            aria-label="Thích bình luận"
+            title="Thích"
+            onClick={() => onReact(item, 'heart', hasReacted(item, 'heart', currentUserId))}
+          >
+            <FiThumbsUp />
+            {getReactionCount(item, 'heart') ? <span>{getReactionCount(item, 'heart')}</span> : null}
+          </button>
+          <button type="button" aria-label="Trả lời bình luận" title="Trả lời" onClick={() => onStartReply(item)}>
+            <FiCornerUpLeft />
           </button>
         </div>
         {isReplying ? (
@@ -1017,6 +1349,42 @@ export const UrbanPostDetailPage = () => {
   useEffect(() => {
     loadDetail()
   }, [loadDetail])
+
+  useEffect(() => {
+    const socket = getSocket() || initSocket()
+    if (!socket) return undefined
+
+    const handlePostUpdate = (payload) => {
+      const nextPost = payload?.post
+      if (!nextPost?.postId || nextPost.postId !== postId) return
+      setPost(nextPost)
+    }
+    const handleCommentCreated = (payload) => {
+      if (String(payload?.postId || '') !== String(postId)) return
+      if (!payload?.comment?.commentId) return
+      setComments((current) => upsertCommentInCollection(current, payload.comment))
+      if (payload?.post) setPost(payload.post)
+    }
+    const handleCommentReactionUpdated = (payload) => {
+      if (String(payload?.postId || '') !== String(postId)) return
+      if (!payload?.comment?.commentId) return
+      setComments((current) => upsertCommentInCollection(current, payload.comment))
+    }
+
+    socket.on('post:updated', handlePostUpdate)
+    socket.on('post:status_changed', handlePostUpdate)
+    socket.on('post:reaction_updated', handlePostUpdate)
+    socket.on('post:comment_created', handleCommentCreated)
+    socket.on('post:comment_reaction_updated', handleCommentReactionUpdated)
+
+    return () => {
+      socket.off('post:updated', handlePostUpdate)
+      socket.off('post:status_changed', handlePostUpdate)
+      socket.off('post:reaction_updated', handlePostUpdate)
+      socket.off('post:comment_created', handleCommentCreated)
+      socket.off('post:comment_reaction_updated', handleCommentReactionUpdated)
+    }
+  }, [postId])
 
   useEffect(() => {
     let isCancelled = false
@@ -1105,7 +1473,13 @@ export const UrbanPostDetailPage = () => {
             <span className={`urban-status status-${post.status}`}>{statusLabel(post.status)}</span>
           </div>
           <div className="urban-detail-author">
-            <div className="urban-avatar">{getInitial(post, profileMap, currentUser)}</div>
+            <div className="urban-avatar">
+              {getAuthorAvatar(post, profileMap, currentUser) ? (
+                <img src={getAuthorAvatar(post, profileMap, currentUser)} alt={getAuthorLabel(post, profileMap, currentUser)} loading="lazy" />
+              ) : (
+                getInitial(post, profileMap, currentUser)
+              )}
+            </div>
             <div>
               <strong>{getAuthorLabel(post, profileMap, currentUser)}</strong>
               <span>{formatPostTime(post.createdAt)} · {categoryLabel(post.category)}</span>
@@ -1265,12 +1639,6 @@ export const UrbanMapPage = () => {
           },
         })
 
-        map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
-        map.addControl(new maplibregl.GeolocateControl({
-          positionOptions: { enableHighAccuracy: true },
-          trackUserLocation: true,
-        }), 'top-right')
-
         map.on('load', () => {
           setMapStatus('ready')
           loadPostsInBounds({ force: true })
@@ -1361,16 +1729,22 @@ export const UrbanMapPage = () => {
       const isSelected = selectedPostId && post.postId === selectedPostId
       const markerEl = document.createElement('button')
       const markerIconEl = document.createElement('span')
+      const markerStatusEl = document.createElement('span')
       markerEl.type = 'button'
       markerEl.className = `urban-map-pin${isSelected ? ' selected' : ''}`
       markerEl.dataset.status = String(post.status || 'pending')
       markerEl.dataset.category = String(post.category || 'other')
+      markerEl.style.setProperty('--urban-marker-color', categoryMarkerColors[post.category] || categoryMarkerColors.other)
+      markerEl.style.setProperty('--urban-marker-status-color', statusMarkerColors[post.status] || statusMarkerColors.pending)
       markerEl.title = categoryLabel(post.category)
       markerEl.setAttribute('aria-label', `${categoryLabel(post.category)} - ${statusLabel(post.status)}`)
       markerIconEl.className = 'urban-map-pin-icon'
       markerIconEl.setAttribute('aria-hidden', 'true')
-      markerIconEl.textContent = getCategoryMarkerSymbol(post.category)
+      markerIconEl.innerHTML = renderCategoryMarkerIcon(post.category, 'urban-map-pin-icon-svg')
+      markerStatusEl.className = 'urban-map-pin-status'
+      markerStatusEl.setAttribute('aria-hidden', 'true')
       markerEl.appendChild(markerIconEl)
+      markerEl.appendChild(markerStatusEl)
 
       const popup = new maplibregl.Popup({ offset: 22, closeButton: true })
         .setDOMContent(createPostPopupNode(post))
@@ -1400,22 +1774,64 @@ export const UrbanMapPage = () => {
     })
   }
 
-  return (
-    <UrbanShell>
-      <div className="urban-map-page">
-        <header className="urban-map-header">
-          <div>
-            <h1>Bản đồ sự cố</h1>
-            <p>AWS Location Service qua backend proxy, marker cập nhật theo vùng bản đồ.</p>
-          </div>
-          <div className="urban-map-toolbar">
-            <button type="button" onClick={resetToHoChiMinh}><FiMapPin /> TP.HCM</button>
-            <button type="button" onClick={() => loadPostsInBounds({ force: true })}><FiRefreshCcw /> Tải lại</button>
-          </div>
-        </header>
+  const zoomIn = () => {
+    const map = mapRef.current
+    if (!map) return
+    map.easeTo({ zoom: Math.min(map.getZoom() + 1, 20), duration: 250 })
+  }
 
-        <section className="urban-map-shell">
+  const zoomOut = () => {
+    const map = mapRef.current
+    if (!map) return
+    map.easeTo({ zoom: Math.max(map.getZoom() - 1, 2), duration: 250 })
+  }
+
+  const locateUser = () => {
+    if (!navigator.geolocation) {
+      setError('Trình duyệt không hỗ trợ lấy vị trí hiện tại')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const map = mapRef.current
+        if (!map) return
+        setError('')
+        map.flyTo({
+          center: [position.coords.longitude, position.coords.latitude],
+          zoom: Math.max(map.getZoom(), 15),
+          essential: true,
+        })
+      },
+      () => setError('Không thể lấy vị trí hiện tại. Hãy cấp quyền vị trí và thử lại.')
+    )
+  }
+
+  return (
+    <UrbanShell mainClassName="urban-main-map" navClassName="urban-top-nav-floating">
+      <div className="urban-map-page">
+        <header className="urban-map-page-head">
+          <h1>Bản đồ sự cố</h1>
+        </header>
+        <section className="urban-map-shell urban-map-shell-immersive">
           <div ref={mapContainerRef} className="urban-map-canvas" />
+
+          <div className="urban-map-toolbar" aria-label="Điều khiển bản đồ">
+            <button type="button" onClick={zoomIn} title="Phóng to" aria-label="Phóng to">
+              <FiPlus />
+            </button>
+            <button type="button" onClick={zoomOut} title="Thu nhỏ" aria-label="Thu nhỏ">
+              <FiMinus />
+            </button>
+            <button type="button" onClick={locateUser} title="Vị trí hiện tại" aria-label="Vị trí hiện tại">
+              <FiCrosshair />
+            </button>
+            <button type="button" onClick={resetToHoChiMinh} title="Về TP.HCM" aria-label="Về TP.HCM">
+              <FiMapPin />
+            </button>
+            <button type="button" onClick={() => loadPostsInBounds({ force: true })} title="Tải lại" aria-label="Tải lại">
+              <FiRefreshCcw />
+            </button>
+          </div>
 
           {mapStatus === 'loading' ? (
             <div className="urban-map-overlay">
@@ -1458,7 +1874,7 @@ export const UrbanMapPage = () => {
         <div className="urban-map-legend">
           {categories.map(([key, label]) => (
             <span key={key}>
-              <i aria-hidden="true">{getCategoryMarkerSymbol(key)}</i>
+              {React.createElement(getCategoryMarkerIcon(key), { className: 'urban-map-legend-icon', 'aria-hidden': true })}
               {label}
             </span>
           ))}

@@ -787,6 +787,7 @@ const ChatPage = () => {
             onSelectConversation={handleSelectConversation}
             onOpenNewConversation={() => setShowNewConversationModal(true)}
             onOpenCreateGroup={() => setShowCreateGroupModal(true)}
+            onStartConversation={handleStartConversationWithUser}
             pendingRequestCount={friendRequestCount}
             onlineUsers={onlineUsers}
             unreadByConversation={unreadByConversation}

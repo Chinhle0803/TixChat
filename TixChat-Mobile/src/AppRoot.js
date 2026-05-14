@@ -40,6 +40,7 @@ import {
   onTypingStop,
 } from './services/socket'
 import { storage } from './services/storage'
+import { useAppTheme } from './theme'
 import {
   MOBILE_CHIME_EVENTS,
   addMobileChimeEventListener,
@@ -422,6 +423,7 @@ const normalizeAuthPayload = (response) => {
 }
 
 export default function AppRoot() {
+  const appTheme = useAppTheme()
   const [booting, setBooting] = useState(true)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -1365,7 +1367,7 @@ export default function AppRoot() {
     }
   }, [])
 
-  const updateProfile = useCallback(async ({ displayName, bio }) => {
+  const updateProfile = useCallback(async ({ displayName, bio, province, district }) => {
     setAuthLoading(true)
     setAuthError('')
 
@@ -1374,6 +1376,8 @@ export default function AppRoot() {
         displayName,
         fullName: displayName,
         bio,
+        province,
+        district,
       })
 
       const updated = response?.data?.user
@@ -1388,6 +1392,8 @@ export default function AppRoot() {
         displayName: updated?.displayName || updated?.fullName || displayName,
         fullName: updated?.fullName || displayName,
         bio: updated?.bio || bio || '',
+        province: updated?.province ?? province ?? user?.province ?? '',
+        district: updated?.district ?? district ?? user?.district ?? '',
       }
 
       await applyAuth({
@@ -1447,11 +1453,14 @@ export default function AppRoot() {
 
       const picked = result.assets[0]
       const formData = new FormData()
-      formData.append('avatar', {
-        uri: picked.uri,
-        name: picked.fileName || `avatar-${Date.now()}.jpg`,
-        type: picked.mimeType || 'image/jpeg',
-      })
+      const avatarPayload = picked?.file
+        ? picked.file
+        : {
+          uri: picked.uri,
+          name: picked.fileName || `avatar-${Date.now()}.jpg`,
+          type: picked.mimeType || 'image/jpeg',
+        }
+      formData.append('avatar', avatarPayload)
 
       const response = await userApi.updateAvatar(formData)
       const updated = response?.data?.user
@@ -1583,11 +1592,14 @@ export default function AppRoot() {
 
       const picked = result.assets[0]
       const formData = new FormData()
-      formData.append('avatar', {
-        uri: picked.uri,
-        name: picked.fileName || `group-avatar-${Date.now()}.jpg`,
-        type: picked.mimeType || 'image/jpeg',
-      })
+      const avatarPayload = picked?.file
+        ? picked.file
+        : {
+          uri: picked.uri,
+          name: picked.fileName || `group-avatar-${Date.now()}.jpg`,
+          type: picked.mimeType || 'image/jpeg',
+        }
+      formData.append('avatar', avatarPayload)
 
       const response = await conversationApi.updateConversationAvatar(conversationId, formData)
       const updatedConversation = response?.data?.conversation || {}
@@ -2641,7 +2653,7 @@ export default function AppRoot() {
             <SocketProvider>
               <DialogProvider>
                 <NavigationContainer ref={navigationRef}>
-            <StatusBar barStyle="dark-content" />
+            <StatusBar barStyle={appTheme.isDark ? 'light-content' : 'dark-content'} />
       <Stack.Navigator
         initialRouteName={authenticated ? 'Conversations' : 'Login'}
         screenOptions={{
@@ -2727,6 +2739,7 @@ export default function AppRoot() {
                   conversations={visibleConversations}
                   unreadByConversation={unreadByConversation}
                   loading={loadingConversations}
+                  friendRequestCount={0}
                   onOpenProfile={() => navigation.navigate('Profile')}
                   onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenDiscover={() => navigation.navigate('Discover')}
@@ -2771,9 +2784,10 @@ export default function AppRoot() {
               {({ navigation }) => (
                 <AssistantScreen
                   onOpenChats={() => navigation.navigate('Conversations')}
-                  onOpenCalls={() => navigation.navigate('Calls')}
+                  onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenUrban={() => navigation.navigate('UrbanIncidents')}
                   onOpenProfile={() => navigation.navigate('Profile')}
+                  friendRequestCount={0}
                 />
               )}
             </Stack.Screen>
@@ -2784,9 +2798,9 @@ export default function AppRoot() {
                   currentUserId={user?._id || user?.userId}
                   onBack={() => navigation.goBack()}
                   onOpenConversations={() => navigation.navigate('Conversations')}
+                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
+                  onOpenAssistant={() => navigation.navigate('Assistant')}
                   onOpenProfile={() => navigation.navigate('Profile')}
-                  onOpenDiscover={() => navigation.navigate('Discover')}
-                  onOpenDiary={() => navigation.navigate('Diary')}
                   onOpenCreateGroup={() => navigation.navigate('CreateGroup')}
                   onStartConversation={async (targetUserId) => {
                     const opened = await startConversationWithUser(targetUserId)
@@ -2833,9 +2847,10 @@ export default function AppRoot() {
                 <UrbanIncidentScreen
                   onBack={() => navigation.goBack()}
                   onOpenChats={() => navigation.navigate('Conversations')}
-                  onOpenCalls={() => navigation.navigate('Calls')}
+                  onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenAssistant={() => navigation.navigate('Assistant')}
                   onOpenProfile={() => navigation.navigate('Profile')}
+                  friendRequestCount={0}
                 />
               )}
             </Stack.Screen>
@@ -2869,6 +2884,9 @@ export default function AppRoot() {
                   onUpdateProfile={updateProfile}
                   onChangePassword={updatePassword}
                   onOpenConversations={() => navigation.navigate('Conversations')}
+                  onOpenCalls={() => navigation.navigate('Calls')}
+                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
+                  onOpenAssistant={() => navigation.navigate('Assistant')}
                   onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenDiscover={() => navigation.navigate('Discover')}
                   onOpenDiary={() => navigation.navigate('Diary')}
@@ -2952,7 +2970,14 @@ export default function AppRoot() {
         onSwitchCamera={switchMobileCamera}
         onSelectAudioRoute={selectMobileAudioRoute}
       />
-      <ExpoStatusBar style="dark" />
+      <AppDialogModal
+        visible={appDialog.visible}
+        title={appDialog.title}
+        message={appDialog.message}
+        actions={appDialog.actions}
+        onClose={closeAppDialog}
+      />
+      <ExpoStatusBar style={appTheme.isDark ? 'light' : 'dark'} />
     </NavigationContainer>
               </DialogProvider>
             </SocketProvider>

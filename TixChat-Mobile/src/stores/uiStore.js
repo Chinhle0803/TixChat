@@ -1,131 +1,125 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react'
+import React, { useEffect } from 'react'
+import { create } from 'zustand'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
-const initialState = {
-  dialog: {
-    visible: false,
-    title: '',
-    message: '',
-    actions: [{ text: 'OK', style: 'default' }],
+const THEME_PREFERENCE_KEY = 'tixchat.theme.v1'
+
+const DEFAULT_DIALOG = {
+  visible: false,
+  title: '',
+  message: '',
+  actions: [{ text: 'OK', style: 'default' }],
+  inputProps: null,
+  isPrompt: false,
+}
+
+const normalizeThemePreference = (value) => {
+  const preference = String(value || 'system').toLowerCase()
+  if (preference === 'light' || preference === 'dark' || preference === 'system') {
+    return preference
+  }
+  return 'system'
+}
+
+export const useUiStore = create((set, get) => ({
+  dialog: DEFAULT_DIALOG,
+  themePreference: 'system',
+  themeReady: false,
+
+  initializeThemePreference: async () => {
+    try {
+      const stored = await AsyncStorage.getItem(THEME_PREFERENCE_KEY)
+      set({
+        themePreference: normalizeThemePreference(stored),
+        themeReady: true,
+      })
+    } catch (_) {
+      set({ themePreference: 'system', themeReady: true })
+    }
   },
-}
 
-const uiReducer = (state, action) => {
-  switch (action.type) {
-    case 'SHOW_DIALOG':
-      return {
-        ...state,
-        dialog: {
-          visible: true,
-          title: String(action.payload.title || 'Thông báo'),
-          message: String(action.payload.message || ''),
-          actions: action.payload.actions || [{ text: 'OK', style: 'default' }],
-        },
-      }
-    case 'CLOSE_DIALOG':
-      return {
-        ...state,
-        dialog: { ...state.dialog, visible: false },
-      }
-    case 'CLEAR_DIALOG':
-      return {
-        ...state,
-        dialog: {
-          visible: false,
-          title: '',
-          message: '',
-          actions: [{ text: 'OK', style: 'default' }],
-        },
-      }
-    default:
-      return state
-  }
-}
+  setThemePreference: async (value) => {
+    const nextPreference = normalizeThemePreference(value)
+    await AsyncStorage.setItem(THEME_PREFERENCE_KEY, nextPreference)
+    set({ themePreference: nextPreference })
+  },
 
-const UiContext = createContext(null)
-
-export const useUiStore = () => {
-  const context = useContext(UiContext)
-  if (!context) {
-    throw new Error('useUiStore must be used within UiProvider')
-  }
-  return context
-}
-
-export const UiProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(uiReducer, initialState)
-
-  const showDialog = useCallback(({ title, message, actions }) => {
+  showDialog: ({ title, message, actions, inputProps, isPrompt } = {}) => {
     const safeActions = Array.isArray(actions) && actions.length > 0
       ? actions
       : [{ text: 'OK', style: 'default' }]
 
-    dispatch({
-      type: 'SHOW_DIALOG',
-      payload: { title, message, actions: safeActions },
+    set({
+      dialog: {
+        visible: true,
+        title: String(title || 'Thông báo'),
+        message: String(message || ''),
+        actions: safeActions,
+        inputProps: inputProps || null,
+        isPrompt: Boolean(isPrompt),
+      },
     })
-  }, [])
+  },
 
-  const closeDialog = useCallback(() => {
-    dispatch({ type: 'CLOSE_DIALOG' })
-  }, [])
+  closeDialog: () => {
+    set((state) => ({
+      dialog: {
+        ...state.dialog,
+        visible: false,
+      },
+    }))
+  },
 
-  const showNotice = useCallback((title, message) => {
-    showDialog({ title, message })
-  }, [showDialog])
+  clearDialog: () => {
+    set({ dialog: DEFAULT_DIALOG })
+  },
 
-  const showConfirm = useCallback(({ title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', variant = 'warning' }) => {
-    return new Promise((resolve) => {
-      dispatch({
-        type: 'SHOW_DIALOG',
-        payload: {
-          title,
-          message,
-          actions: [
-            { text: cancelText, style: 'cancel', onPress: () => resolve(false) },
-            { text: confirmText, style: variant, onPress: () => resolve(true) },
-          ],
-        },
+  showNotice: (title, message) => {
+    get().showDialog({ title, message })
+  },
+
+  showConfirm: ({ title, message, confirmText = 'Xác nhận', cancelText = 'Hủy', variant = 'warning' } = {}) =>
+    new Promise((resolve) => {
+      get().showDialog({
+        title,
+        message,
+        actions: [
+          { text: cancelText, style: 'cancel', onPress: () => resolve(false) },
+          { text: confirmText, style: variant, onPress: () => resolve(true) },
+        ],
       })
-    })
-  }, [])
+    }),
 
-  const showPrompt = useCallback(({ title, message, defaultValue = '', placeholder = '', confirmText = 'OK', cancelText = 'Hủy' }) => {
-    return new Promise((resolve) => {
-      dispatch({
-        type: 'SHOW_DIALOG',
-        payload: {
-          title,
-          message,
-          actions: [
-            { text: cancelText, style: 'cancel', onPress: () => resolve(null) },
-            { text: confirmText, style: 'primary', onPress: (inputValue) => resolve(inputValue) },
-          ],
-          inputProps: { defaultValue, placeholder },
-          isPrompt: true,
-        },
+  showPrompt: ({
+    title,
+    message,
+    defaultValue = '',
+    placeholder = '',
+    confirmText = 'OK',
+    cancelText = 'Hủy',
+  } = {}) =>
+    new Promise((resolve) => {
+      get().showDialog({
+        title,
+        message,
+        actions: [
+          { text: cancelText, style: 'cancel', onPress: () => resolve(null) },
+          { text: confirmText, style: 'primary', onPress: (inputValue) => resolve(inputValue) },
+        ],
+        inputProps: { defaultValue, placeholder },
+        isPrompt: true,
       })
-    })
-  }, [])
+    }),
+}))
 
-  const clearDialog = useCallback(() => {
-    dispatch({ type: 'CLEAR_DIALOG' })
-  }, [])
+export const UiProvider = ({ children }) => {
+  const initializeThemePreference = useUiStore((state) => state.initializeThemePreference)
 
-  const value = {
-    ...state,
-    showDialog,
-    closeDialog,
-    showNotice,
-    showConfirm,
-    showPrompt,
-    clearDialog,
-  }
+  useEffect(() => {
+    initializeThemePreference()
+  }, [initializeThemePreference])
 
-  return (
-    <UiContext.Provider value={value}>
-      {children}
-    </UiContext.Provider>
-  )
+  return children
 }
 
 export default useUiStore

@@ -2,16 +2,262 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   View,
   Text,
-  TextInput,
   Pressable,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Image,
   Modal,
+  Platform,
 } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Button, Card, IconButton, Input, MobileBottomTabBar, Screen, TopBar } from './ui'
+import { useAppTheme } from '../theme'
+
+const NativeWebView = Platform.OS === 'web' ? null : require('react-native-webview').WebView
+const DEFAULT_PROFILE_LOCATION = { lat: 10.776889, lng: 106.700806 }
+
+const toCoordinateNumber = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+const formatCoordinates = (location = {}) => {
+  const lat = toCoordinateNumber(location.lat)
+  const lng = toCoordinateNumber(location.lng)
+  if (lat === null || lng === null) return ''
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
+const getLocationLabel = (location = {}) => {
+  const district = String(location?.district || '').trim()
+  const province = String(location?.province || '').trim()
+  const address = String(location?.address || '').trim()
+  return [district, province].filter(Boolean).join(', ') || address || 'Chưa chọn khu vực'
+}
+
+const normalizeProfileLocation = (location = {}, fallbackUser = {}) => {
+  const province = String(location?.province || fallbackUser?.province || '').trim()
+  const district = String(location?.district || fallbackUser?.district || '').trim()
+  const address = String(location?.address || [district, province].filter(Boolean).join(', ')).trim()
+  return {
+    address,
+    lat: location?.lat ?? '',
+    lng: location?.lng ?? '',
+    province,
+    district,
+  }
+}
+
+const extractLocationFromReverseGeocode = (data = {}, coordinates = {}) => {
+  const address = data?.address || {}
+  const province = String(
+    address.city ||
+    address.state ||
+    address.province ||
+    address.region ||
+    ''
+  ).trim()
+  const district = String(
+    address.city_district ||
+    address.district ||
+    address.county ||
+    address.suburb ||
+    address.town ||
+    ''
+  ).trim()
+
+  return {
+    address: String(data?.display_name || '').trim(),
+    lat: coordinates.lat,
+    lng: coordinates.lng,
+    province,
+    district,
+  }
+}
+
+const reverseGeocodeLocation = async ({ lat, lng }) => {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=vi`
+  )
+  if (!response.ok) throw new Error('Không thể lấy dữ liệu khu vực từ bản đồ')
+
+  const data = await response.json()
+  const location = extractLocationFromReverseGeocode(data, { lat, lng })
+  return {
+    ...location,
+    address: location.address || `Vị trí đã chọn (${formatCoordinates(location)})`,
+  }
+}
+
+const createProfileLocationMapHtml = (location = {}) => {
+  const lat = toCoordinateNumber(location.lat)
+  const lng = toCoordinateNumber(location.lng)
+  const hasLocation = lat !== null && lng !== null
+  const center = hasLocation ? { lat, lng } : DEFAULT_PROFILE_LOCATION
+
+  return `<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+      html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #dbeafe; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .leaflet-control-zoom { border: none !important; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18) !important; overflow: hidden; border-radius: 16px !important; }
+      .leaflet-control-zoom a { width: 42px !important; height: 42px !important; line-height: 42px !important; font-size: 22px !important; color: #0f172a !important; }
+      .leaflet-control-current-location { border: none !important; border-radius: 16px !important; overflow: hidden; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18) !important; }
+      .leaflet-control-current-location button { width: 42px; height: 42px; border: 0; background: #ffffff; color: #2563eb; font-size: 22px; font-weight: 900; line-height: 42px; text-align: center; cursor: pointer; }
+      .selected-pin { width: 22px; height: 22px; border-radius: 999px; background: #2563eb; border: 4px solid #fff; box-shadow: 0 0 0 9px rgba(37, 99, 235, 0.18), 0 10px 24px rgba(15, 23, 42, 0.22); }
+      .selected-marker { background: transparent; border: none; }
+      .map-help { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 500; padding: 9px 12px; border-radius: 999px; background: rgba(255,255,255,0.92); color: #334155; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14); }
+    </style>
+    <script>
+      window.__sendMessage = function(type, payload) {
+        var message = JSON.stringify({ type: type, payload: payload });
+        if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(message);
+        if (window.parent && window.parent !== window && window.parent.postMessage) window.parent.postMessage(message, '*');
+      };
+      window.__setMarker = function(lat, lng) {
+        if (!window.mapInstance || !window.L) return;
+        var point = [lat, lng];
+        var icon = window.L.divIcon({
+          className: 'selected-marker',
+          html: '<div class="selected-pin"></div>',
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        });
+        if (window.selectedMarker) window.selectedMarker.setLatLng(point);
+        else window.selectedMarker = window.L.marker(point, { icon: icon, draggable: true }).addTo(window.mapInstance);
+        window.selectedMarker.off('dragend');
+        window.selectedMarker.on('dragend', function() {
+          var p = window.selectedMarker.getLatLng();
+          window.__sendMessage('location_pick', { lat: p.lat, lng: p.lng });
+        });
+      };
+      window.__pick = function(lat, lng) {
+        window.__setMarker(lat, lng);
+        window.mapInstance.flyTo([lat, lng], Math.max(window.mapInstance.getZoom(), 15), { animate: true, duration: 0.45 });
+        window.__sendMessage('location_pick', { lat: lat, lng: lng });
+      };
+      window.__locate = function(button) {
+        if (!navigator.geolocation) {
+          alert('Thiết bị chưa hỗ trợ lấy vị trí hiện tại.');
+          return;
+        }
+        button.disabled = true;
+        button.textContent = '…';
+        navigator.geolocation.getCurrentPosition(
+          function(position) {
+            button.disabled = false;
+            button.textContent = '⌖';
+            window.__pick(position.coords.latitude, position.coords.longitude);
+          },
+          function() {
+            button.disabled = false;
+            button.textContent = '⌖';
+            alert('Không thể lấy vị trí hiện tại. Hãy cấp quyền vị trí rồi thử lại.');
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+        );
+      };
+    </script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div class="map-help">Chạm vào bản đồ để chọn khu vực hồ sơ</div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      (function boot() {
+        if (!window.L) {
+          setTimeout(boot, 50);
+          return;
+        }
+        window.mapInstance = window.L.map('map', { zoomControl: false, attributionControl: false }).setView([${center.lat}, ${center.lng}], ${hasLocation ? 15 : 12});
+        window.L.control.zoom({ position: 'bottomright' }).addTo(window.mapInstance);
+        var CurrentLocationControl = window.L.Control.extend({
+          options: { position: 'bottomright' },
+          onAdd: function() {
+            var container = window.L.DomUtil.create('div', 'leaflet-bar leaflet-control-current-location');
+            var button = window.L.DomUtil.create('button', '', container);
+            button.type = 'button';
+            button.title = 'Vị trí hiện tại';
+            button.textContent = '⌖';
+            window.L.DomEvent.disableClickPropagation(container);
+            window.L.DomEvent.on(button, 'click', function(event) {
+              window.L.DomEvent.stop(event);
+              window.__locate(button);
+            });
+            return container;
+          },
+        });
+        new CurrentLocationControl().addTo(window.mapInstance);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: ['a', 'b', 'c'] }).addTo(window.mapInstance);
+        window.mapInstance.on('click', function(event) { window.__pick(event.latlng.lat, event.latlng.lng); });
+        ${hasLocation ? `window.__setMarker(${lat}, ${lng});` : ''}
+        window.__sendMessage('map_ready', {});
+      })();
+    </script>
+  </body>
+</html>`
+}
+
+function ProfileLocationMap({ value, onPick, style }) {
+  const webViewRef = React.useRef(null)
+  const iframeRef = React.useRef(null)
+  const html = React.useMemo(() => createProfileLocationMapHtml(value), [value])
+
+  const handleMessage = React.useCallback((event) => {
+    try {
+      const data = JSON.parse(event?.nativeEvent?.data || '{}')
+      if (data?.type !== 'location_pick') return
+      const lat = Number(data?.payload?.lat)
+      const lng = Number(data?.payload?.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+      onPick?.({ lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) })
+    } catch (_) {
+      // Ignore malformed bridge messages.
+    }
+  }, [onPick])
+
+  React.useEffect(() => {
+    if (Platform.OS !== 'web') return undefined
+    const handleWindowMessage = (event) => {
+      if (typeof event?.data !== 'string') return
+      handleMessage({ nativeEvent: { data: event.data } })
+    }
+    window.addEventListener('message', handleWindowMessage)
+    return () => window.removeEventListener('message', handleWindowMessage)
+  }, [handleMessage])
+
+  return (
+    <View style={style}>
+      {Platform.OS === 'web' ? (
+        <iframe
+          ref={iframeRef}
+          title="Chọn khu vực hồ sơ"
+          srcDoc={html}
+          style={{ width: '100%', height: '100%', borderWidth: 0 }}
+          allow="geolocation"
+        />
+      ) : (
+        <NativeWebView
+          ref={webViewRef}
+          originWhitelist={['*']}
+          source={{ html }}
+          style={{ flex: 1, backgroundColor: '#dbeafe' }}
+          onMessage={handleMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          geolocationEnabled
+          scrollEnabled={false}
+          overScrollMode="never"
+        />
+      )}
+    </View>
+  )
+}
 
 const getDisplayName = (user) => {
   if (!user) return 'Người dùng'
@@ -37,10 +283,18 @@ export default function ProfileScreen({
   onOpenFriends,
   onOpenDiscover,
   onOpenDiary,
+  onOpenCalls,
+  onOpenUrban,
+  onOpenAssistant,
 }) {
+  const theme = useAppTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
+  const c = theme.colors
   const insets = useSafeAreaInsets()
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
+  const [province, setProvince] = useState('')
+  const [district, setDistrict] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -49,7 +303,7 @@ export default function ProfileScreen({
   const [localError, setLocalError] = useState('')
 
   const bottomInset = Math.max(insets.bottom, 8)
-  const tabBarHeight = 70 + bottomInset
+  const tabBarHeight = 64 + bottomInset
 
   const resolvedDisplayName = useMemo(() => getDisplayName(user), [user])
   const resolvedHandle = useMemo(() => getUserHandle(user), [user])
@@ -58,6 +312,8 @@ export default function ProfileScreen({
   useEffect(() => {
     setDisplayName(user?.displayName || user?.fullName || user?.username || '')
     setBio(user?.bio || '')
+    setProvince(user?.province || '')
+    setDistrict(user?.district || '')
   }, [user])
 
   const submitProfile = async () => {
@@ -67,7 +323,12 @@ export default function ProfileScreen({
     }
 
     setLocalError('')
-    const result = await onUpdateProfile({ displayName: displayName.trim(), bio: bio.trim() })
+    const result = await onUpdateProfile({
+      displayName: displayName.trim(),
+      bio: bio.trim(),
+      province: province.trim(),
+      district: district.trim(),
+    })
 
     if (result?.ok) {
       setLocalMessage('Cập nhật hồ sơ thành công')
@@ -104,7 +365,7 @@ export default function ProfileScreen({
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-  setShowPasswordForm(false)
+      setShowPasswordForm(false)
       setLocalMessage('Đổi mật khẩu thành công')
     } else if (result?.error) {
       setLocalError(result.error)
@@ -112,22 +373,18 @@ export default function ProfileScreen({
   }
 
   return (
-    <View style={styles.screen}>
-      <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-        <Pressable style={styles.headerIconBtn} onPress={onBack}>
-          <MaterialCommunityIcons name="arrow-left" style={styles.headerIcon} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Hồ sơ cá nhân</Text>
-        <Pressable style={styles.headerIconBtn} onPress={() => setShowPasswordForm(true)}>
-          <MaterialCommunityIcons name="cog" style={styles.headerIcon} />
-        </Pressable>
-      </View>
+    <Screen style={styles.screen}>
+      <TopBar
+        title="Hồ sơ cá nhân"
+        leftAction={<IconButton icon="arrow-left" onPress={onBack} />}
+        style={{ paddingTop: insets.top + 4 }}
+      />
 
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: tabBarHeight + 24 }]}>
         {!!(localError || error) && <Text style={styles.error}>{localError || error}</Text>}
         {!!localMessage && <Text style={styles.success}>{localMessage}</Text>}
 
-        <View style={styles.profileTopWrap}>
+        <Card style={styles.profileTopWrap}>
           <View style={styles.avatarWrap}>
             {user?.avatar ? (
               <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
@@ -143,7 +400,7 @@ export default function ProfileScreen({
                 setLocalError('')
                 const result = await onUpdateAvatar?.()
                 if (result?.ok) {
-                  setLocalMessage('Cập nhật avatar thành công')
+                  setLocalMessage('Cập nhật ảnh đại diện thành công')
                 } else if (result?.error) {
                   setLocalError(result.error)
                 }
@@ -151,7 +408,7 @@ export default function ProfileScreen({
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={c.primaryForeground} size="small" />
               ) : (
                 <MaterialCommunityIcons name="camera-plus" style={styles.avatarCameraIcon} />
               )}
@@ -160,71 +417,65 @@ export default function ProfileScreen({
 
           <Text style={styles.profileName}>{resolvedDisplayName}</Text>
           <Text style={styles.profileHandle}>{resolvedHandle}</Text>
-        </View>
+        </Card>
 
-        <View style={styles.formSection}>
+        <Card style={styles.formSection}>
           <Text style={styles.fieldLabel}>TÊN HIỂN THỊ</Text>
-          <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} />
-
-          <Text style={styles.fieldLabel}>TÊN ĐĂNG NHẬP</Text>
-          <TextInput style={[styles.input, styles.inputDisabled]} value={String(user?.username || '')} editable={false} />
+          <Input style={styles.input} value={displayName} onChangeText={setDisplayName} />
 
           <Text style={styles.fieldLabel}>EMAIL</Text>
-          <TextInput style={[styles.input, styles.inputDisabled]} value={String(user?.email || '')} editable={false} />
+          <Input style={[styles.input, styles.inputDisabled]} value={String(user?.email || '')} editable={false} />
 
-          <Text style={styles.fieldLabel}>BIO</Text>
-          <TextInput
+          <Text style={styles.fieldLabel}>GIỚI THIỆU</Text>
+          <Input
             style={[styles.input, styles.bioInput]}
             value={bio}
             multiline
             maxLength={250}
             onChangeText={setBio}
             placeholder="Viết vài dòng giới thiệu về bạn"
-            placeholderTextColor="#9ca3af"
           />
-        </View>
 
-        <Pressable style={[styles.primaryButton, loading && styles.buttonDisabled]} onPress={submitProfile} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>LƯU THAY ĐỔI</Text>}
-        </Pressable>
+          <Text style={styles.fieldLabel}>TỈNH/THÀNH PHỐ</Text>
+          <Input
+            style={styles.input}
+            value={province}
+            onChangeText={setProvince}
+            placeholder="Ví dụ: Thành phố Hồ Chí Minh"
+          />
+
+          <Text style={styles.fieldLabel}>QUẬN/HUYỆN</Text>
+          <Input
+            style={styles.input}
+            value={district}
+            onChangeText={setDistrict}
+            placeholder="Ví dụ: Quận 1"
+          />
+        </Card>
+
+        <Button style={styles.primaryButton} loading={loading} onPress={submitProfile} disabled={loading}>
+          Lưu thay đổi
+        </Button>
 
         <Pressable style={styles.outlineButton} onPress={() => setShowPasswordForm(true)}>
-          <MaterialCommunityIcons name="lock" style={styles.outlineButtonIcon} />
-          <Text style={styles.outlineButtonText}>ĐỔI MẬT KHẨU</Text>
+          <Text style={styles.outlineButtonText}>Đổi mật khẩu</Text>
         </Pressable>
 
         <Pressable style={styles.dangerOutlineButton} onPress={onLogout}>
-          <MaterialCommunityIcons name="logout" style={styles.dangerOutlineIcon} />
-          <Text style={styles.dangerOutlineText}>ĐĂNG XUẤT</Text>
+          <Text style={styles.dangerOutlineText}>Đăng xuất</Text>
         </Pressable>
       </ScrollView>
 
-      <View style={[styles.bottomTabBar, { height: tabBarHeight, paddingBottom: bottomInset }]}>
-        <Pressable style={styles.tabItem} onPress={onOpenConversations || onBack}>
-          <MaterialCommunityIcons name="message-text-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Tin nhắn</Text>
-        </Pressable>
-
-        <Pressable style={styles.tabItem} onPress={onOpenFriends}>
-          <MaterialCommunityIcons name="card-account-details-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Danh bạ</Text>
-        </Pressable>
-
-        <Pressable style={styles.tabItem} onPress={onOpenDiscover}>
-          <MaterialCommunityIcons name="compass-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Khám phá</Text>
-        </Pressable>
-
-        <Pressable style={styles.tabItem} onPress={onOpenDiary}>
-          <MaterialCommunityIcons name="book-open-page-variant-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Nhật ký</Text>
-        </Pressable>
-
-        <Pressable style={styles.tabItem}>
-          <MaterialCommunityIcons name="account" style={[styles.tabIcon, styles.tabIconActive]} />
-          <Text style={[styles.tabLabel, styles.tabLabelActive]}>Cá nhân</Text>
-        </Pressable>
-      </View>
+      <MobileBottomTabBar
+        active="Profile"
+        badges={{ Friends: 0 }}
+        onNavigate={{
+          Chats: onOpenConversations || onBack,
+          Friends: onOpenFriends,
+          Urban: onOpenUrban,
+          Assistant: onOpenAssistant,
+        }}
+      />
 
       <Modal visible={showPasswordForm} transparent animationType="fade" onRequestClose={() => setShowPasswordForm(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowPasswordForm(false)}>
@@ -232,7 +483,7 @@ export default function ProfileScreen({
             <Text style={styles.modalTitle}>Đổi mật khẩu</Text>
 
             <Text style={styles.modalLabel}>Mật khẩu hiện tại</Text>
-            <TextInput
+            <Input
               style={styles.modalInput}
               secureTextEntry
               autoComplete="password"
@@ -241,7 +492,7 @@ export default function ProfileScreen({
             />
 
             <Text style={styles.modalLabel}>Mật khẩu mới</Text>
-            <TextInput
+            <Input
               style={styles.modalInput}
               secureTextEntry
               autoComplete="new-password"
@@ -250,7 +501,7 @@ export default function ProfileScreen({
             />
 
             <Text style={styles.modalLabel}>Xác nhận mật khẩu</Text>
-            <TextInput
+            <Input
               style={styles.modalInput}
               secureTextEntry
               autoComplete="new-password"
@@ -263,306 +514,204 @@ export default function ProfileScreen({
                 <Text style={styles.modalCancelText}>Hủy</Text>
               </Pressable>
               <Pressable style={[styles.modalSaveBtn, loading && styles.buttonDisabled]} onPress={submitPassword} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalSaveText}>Lưu</Text>}
+                {loading ? <ActivityIndicator color={c.primaryForeground} size="small" /> : <Text style={styles.modalSaveText}>Lưu</Text>}
               </Pressable>
             </View>
           </Pressable>
         </Pressable>
       </Modal>
-    </View>
+    </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#eceef2',
-  },
-  header: {
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerIcon: {
-    fontSize: 27,
-    color: '#1663e7',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 21,
-    fontWeight: '700',
-    color: '#121826',
-    marginHorizontal: 6,
-  },
-  container: {
-    padding: 16,
-    backgroundColor: '#eceef2',
-  },
-  profileTopWrap: {
-    alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 22,
-  },
-  avatarWrap: {
-    marginBottom: 12,
-  },
-  avatarImage: {
-    width: 148,
-    height: 148,
-    borderRadius: 74,
-    borderWidth: 4,
-    borderColor: '#ffffff',
-    backgroundColor: '#dbe3f0',
-  },
-  avatarFallback: {
-    width: 148,
-    height: 148,
-    borderRadius: 74,
-    backgroundColor: '#155eaf',
-    borderWidth: 4,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarFallbackText: {
-    color: '#fff',
-    fontSize: 58,
-    fontWeight: '700',
-  },
-  avatarCameraBtn: {
-    position: 'absolute',
-    right: -4,
-    bottom: 4,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#1663e7',
-    borderWidth: 4,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarCameraIcon: {
-    color: '#fff',
-    fontSize: 23,
-  },
-  profileName: {
-    fontSize: 46,
-    fontWeight: '700',
-    color: '#111827',
-    textAlign: 'center',
-  },
-  profileHandle: {
-    marginTop: 4,
-    color: '#6b7280',
-    fontSize: 36,
-    fontWeight: '600',
-  },
-  formSection: {
-    marginBottom: 14,
-  },
-  fieldLabel: {
-    color: '#6b7280',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    marginBottom: 9,
-    marginLeft: 6,
-    marginTop: 12,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#edf0f4',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    marginBottom: 2,
-    backgroundColor: '#f8fafc',
-    color: '#111827',
-  },
-  inputDisabled: {
-    backgroundColor: '#f5f6f8',
-    color: '#64748b',
-  },
-  bioInput: {
-    minHeight: 128,
-    textAlignVertical: 'top',
-  },
-  primaryButton: {
-    marginTop: 12,
-    backgroundColor: '#1663e7',
-    borderRadius: 999,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    fontSize: 16,
-  },
-  outlineButton: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#dbe0e8',
-    backgroundColor: '#f4f6f9',
-    borderRadius: 999,
-    paddingVertical: 15,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  outlineButtonIcon: {
-    color: '#151b27',
-    fontSize: 18,
-  },
-  outlineButtonText: {
-    color: '#151b27',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    fontSize: 16,
-  },
-  dangerOutlineButton: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#f1c5c5',
-    backgroundColor: '#f8f8f9',
-    borderRadius: 999,
-    paddingVertical: 15,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  dangerOutlineIcon: {
-    color: '#cd2323',
-    fontSize: 18,
-  },
-  dangerOutlineText: {
-    color: '#cd2323',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    fontSize: 16,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  error: {
-    color: '#dc2626',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  success: {
-    color: '#0f766e',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  bottomTabBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#f8fafc',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingTop: 8,
-    zIndex: 40,
-    elevation: 16,
-  },
-  tabItem: {
-    alignItems: 'center',
-    width: '20%',
-  },
-  tabIcon: {
-    fontSize: 21,
-    color: '#94a3b8',
-  },
-  tabIconActive: {
-    color: '#0f5ed7',
-  },
-  tabLabel: {
-    marginTop: 3,
-    color: '#94a3b8',
-    fontSize: 12,
-  },
-  tabLabelActive: {
-    color: '#0f5ed7',
-    fontWeight: '600',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(2, 6, 23, 0.6)',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  modalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 10,
-  },
-  modalLabel: {
-    marginTop: 8,
-    marginBottom: 6,
-    color: '#475569',
-    fontWeight: '600',
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-  },
-  modalActions: {
-    marginTop: 14,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  modalCancelBtn: {
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  modalCancelText: {
-    color: '#475569',
-    fontWeight: '700',
-  },
-  modalSaveBtn: {
-    backgroundColor: '#1663e7',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-  },
-  modalSaveText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-})
+const createStyles = (theme) => {
+  const c = theme.colors
+
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    container: {
+      padding: 16,
+      backgroundColor: c.background,
+      gap: 12,
+    },
+    profileTopWrap: {
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    avatarWrap: {
+      marginBottom: 12,
+    },
+    avatarImage: {
+      width: 128,
+      height: 128,
+      borderRadius: 64,
+      borderWidth: 4,
+      borderColor: c.surface,
+      backgroundColor: c.muted,
+    },
+    avatarFallback: {
+      width: 128,
+      height: 128,
+      borderRadius: 64,
+      backgroundColor: c.primary,
+      borderWidth: 4,
+      borderColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarFallbackText: {
+      color: c.primaryForeground,
+      fontSize: 44,
+      fontWeight: '700',
+    },
+    avatarCameraBtn: {
+      position: 'absolute',
+      right: -4,
+      bottom: 4,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: c.primary,
+      borderWidth: 4,
+      borderColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarCameraIcon: {
+      color: c.primaryForeground,
+      fontSize: 22,
+    },
+    profileName: {
+      fontSize: theme.type['2xl'],
+      fontWeight: '700',
+      color: c.neutral900,
+      textAlign: 'center',
+    },
+    profileHandle: {
+      marginTop: 4,
+      color: c.neutral500,
+      fontSize: theme.type.lg,
+      fontWeight: '600',
+    },
+    formSection: {},
+    fieldLabel: {
+      color: c.neutral500,
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: 8,
+      marginTop: 12,
+    },
+    input: {
+      marginBottom: 2,
+    },
+    inputDisabled: {
+      backgroundColor: c.muted,
+      color: c.neutral500,
+    },
+    bioInput: {
+      minHeight: 128,
+      textAlignVertical: 'top',
+    },
+    primaryButton: {
+      borderRadius: 999,
+    },
+    outlineButton: {
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.surface,
+      borderRadius: 999,
+      paddingVertical: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    outlineButtonText: {
+      color: c.neutral900,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    dangerOutlineButton: {
+      borderWidth: 1,
+      borderColor: c.dangerSoft,
+      backgroundColor: c.surface,
+      borderRadius: 999,
+      paddingVertical: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dangerOutlineText: {
+      color: c.danger,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    buttonDisabled: {
+      opacity: 0.7,
+    },
+    error: {
+      color: c.danger,
+      textAlign: 'center',
+    },
+    success: {
+      color: c.success,
+      textAlign: 'center',
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: theme.isDark ? 'rgba(2, 6, 23, 0.78)' : 'rgba(2, 6, 23, 0.6)',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+    },
+    modalCard: {
+      backgroundColor: c.surfaceElevated,
+      borderRadius: 18,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.neutral900,
+      marginBottom: 10,
+    },
+    modalLabel: {
+      marginTop: 8,
+      marginBottom: 6,
+      color: c.neutral700,
+      fontWeight: '600',
+    },
+    modalInput: {
+      marginBottom: 2,
+    },
+    modalActions: {
+      marginTop: 14,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 10,
+    },
+    modalCancelBtn: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      backgroundColor: c.muted,
+    },
+    modalCancelText: {
+      color: c.neutral700,
+      fontWeight: '700',
+    },
+    modalSaveBtn: {
+      backgroundColor: c.primary,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+    },
+    modalSaveText: {
+      color: c.primaryForeground,
+      fontWeight: '700',
+    },
+  })
+}

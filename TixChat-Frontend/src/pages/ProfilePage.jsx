@@ -1,9 +1,291 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import useAuthStore from '../store/authStore'
-import { userService } from '../services/api'
+import apiClient, { API_URL, userService } from '../services/api'
 import { useDialog } from '../context/DialogContext'
 import '../styles/ProfilePage.css'
+
+const DEFAULT_PROFILE_LOCATION = { lat: 10.776889, lng: 106.700806 }
+
+const toCoordinateNumber = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+const formatCoordinates = (location = {}) => {
+  const lat = toCoordinateNumber(location.lat)
+  const lng = toCoordinateNumber(location.lng)
+  if (lat === null || lng === null) return ''
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
+const getLocationLabel = (location = {}) => {
+  const district = String(location?.district || '').trim()
+  const province = String(location?.province || '').trim()
+  const address = String(location?.address || '').trim()
+  const regionLabel = [district, province].filter(Boolean).join(', ')
+  return regionLabel || address || 'Chưa chọn khu vực'
+}
+
+const normalizeProfileLocation = (location = {}, fallbackUser = {}) => {
+  const province = String(location?.province || fallbackUser?.province || '').trim()
+  const district = String(location?.district || fallbackUser?.district || '').trim()
+  const address = String(
+    location?.address ||
+    [district, province].filter(Boolean).join(', ')
+  ).trim()
+  return {
+    address,
+    lat: location?.lat ?? '',
+    lng: location?.lng ?? '',
+    province,
+    district,
+  }
+}
+
+const extractLocationFromReverseGeocode = (data = {}, coordinates = {}) => {
+  const address = data?.address || {}
+  const province = String(
+    address.city ||
+    address.state ||
+    address.province ||
+    address.region ||
+    ''
+  ).trim()
+  const district = String(
+    address.city_district ||
+    address.district ||
+    address.county ||
+    address.suburb ||
+    address.town ||
+    ''
+  ).trim()
+
+  return {
+    address: String(data?.display_name || '').trim(),
+    lat: coordinates.lat,
+    lng: coordinates.lng,
+    province,
+    district,
+  }
+}
+
+const reverseGeocodeLocation = async ({ lat, lng }) => {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=vi`
+  )
+  if (!response.ok) throw new Error('Không thể lấy dữ liệu khu vực từ bản đồ')
+
+  const data = await response.json()
+  const location = extractLocationFromReverseGeocode(data, { lat, lng })
+  return {
+    ...location,
+    address: location.address || `Vị trí đã chọn (${formatCoordinates(location)})`,
+  }
+}
+
+const ProfileLocationPicker = ({ value, onChange, onClose }) => {
+  const containerRef = useRef(null)
+  const mapRef = useRef(null)
+  const markerRef = useRef(null)
+  const [status, setStatus] = useState('loading')
+  const [error, setError] = useState('')
+  const [draftLocation, setDraftLocation] = useState(() => normalizeProfileLocation(value))
+  const [resolving, setResolving] = useState(false)
+
+  const placeMarker = useCallback((map, lng, lat) => {
+    const coordinates = [lng, lat]
+    if (!markerRef.current) {
+      markerRef.current = new maplibregl.Marker({ color: '#2563eb', draggable: true })
+        .setLngLat(coordinates)
+        .addTo(map)
+      markerRef.current.on('dragend', () => {
+        const markerCoordinates = markerRef.current.getLngLat()
+        pickCoordinates(markerCoordinates.lng, markerCoordinates.lat)
+      })
+      return
+    }
+    markerRef.current.setLngLat(coordinates)
+  }, [])
+
+  const pickCoordinates = useCallback(async (lng, lat) => {
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return
+
+    const nextCoordinates = {
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+    }
+    const map = mapRef.current
+    if (map) {
+      placeMarker(map, nextCoordinates.lng, nextCoordinates.lat)
+      map.easeTo({
+        center: [nextCoordinates.lng, nextCoordinates.lat],
+        zoom: Math.max(map.getZoom(), 15),
+        duration: 450,
+      })
+    }
+
+    setResolving(true)
+    setError('')
+    try {
+      const resolvedLocation = await reverseGeocodeLocation(nextCoordinates)
+      setDraftLocation(resolvedLocation)
+    } catch (err) {
+      setDraftLocation({
+        address: `Vị trí đã chọn (${formatCoordinates(nextCoordinates)})`,
+        province: '',
+        district: '',
+        ...nextCoordinates,
+      })
+      setError(err?.message || 'Không thể lấy khu vực từ vị trí đã chọn')
+    } finally {
+      setResolving(false)
+    }
+  }, [placeMarker])
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return undefined
+
+    let disposed = false
+    const currentLat = toCoordinateNumber(value?.lat)
+    const currentLng = toCoordinateNumber(value?.lng)
+    const center = currentLat !== null && currentLng !== null
+      ? [currentLng, currentLat]
+      : [DEFAULT_PROFILE_LOCATION.lng, DEFAULT_PROFILE_LOCATION.lat]
+
+    const initializeMap = async () => {
+      setStatus('loading')
+      setError('')
+      try {
+        const styleResponse = await apiClient.get('/maps/style')
+        if (disposed) return
+
+        const map = new maplibregl.Map({
+          container: containerRef.current,
+          style: styleResponse.data,
+          center,
+          zoom: currentLat !== null && currentLng !== null ? 15 : 12,
+          attributionControl: false,
+          transformRequest: (url) => {
+            if (url.startsWith(`${API_URL}/maps`) || url.includes('/api/maps/')) {
+              const token = useAuthStore.getState()?.accessToken
+              return {
+                url,
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              }
+            }
+            return { url }
+          },
+        })
+
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+        map.on('load', () => {
+          setStatus('ready')
+          map.resize()
+          if (currentLat !== null && currentLng !== null) {
+            placeMarker(map, currentLng, currentLat)
+          }
+        })
+        map.on('click', (event) => {
+          pickCoordinates(event.lngLat.lng, event.lngLat.lat)
+        })
+        map.on('error', (event) => {
+          setStatus('error')
+          setError(event?.error?.message || 'Không thể tải bản đồ chọn khu vực')
+        })
+
+        mapRef.current = map
+      } catch (err) {
+        if (disposed) return
+        setStatus('error')
+        setError(err?.response?.data?.error || 'Không thể tải bản đồ chọn khu vực')
+      }
+    }
+
+    initializeMap()
+
+    return () => {
+      disposed = true
+      markerRef.current?.remove()
+      markerRef.current = null
+      mapRef.current?.remove()
+      mapRef.current = null
+    }
+  }, [pickCoordinates, placeMarker, value?.lat, value?.lng])
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Trình duyệt không hỗ trợ lấy vị trí hiện tại')
+      return
+    }
+    setError('')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        pickCoordinates(position.coords.longitude, position.coords.latitude)
+      },
+      () => setError('Không thể lấy vị trí hiện tại. Hãy cấp quyền vị trí hoặc chọn trên bản đồ.'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
+
+  const canConfirm = Boolean(draftLocation?.address || draftLocation?.province || draftLocation?.district)
+
+  return (
+    <div className="profile-location-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="profile-location-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-location-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="profile-location-modal-header">
+          <div>
+            <h2 id="profile-location-title">Chọn khu vực trên bản đồ</h2>
+            <p>Click vào bản đồ hoặc dùng vị trí hiện tại để lấy tỉnh/quận tự động.</p>
+          </div>
+          <button type="button" className="profile-modal-close" onClick={onClose} aria-label="Đóng">
+            ×
+          </button>
+        </div>
+
+        <div className="profile-location-map-wrap">
+          <div ref={containerRef} className="profile-location-map" />
+          {status === 'loading' ? <div className="profile-location-map-overlay">Đang tải bản đồ...</div> : null}
+        </div>
+
+        <div className="profile-location-tools">
+          <button type="button" className="btn btn-secondary" onClick={useCurrentLocation}>
+            Dùng vị trí hiện tại
+          </button>
+          <div className="profile-location-preview">
+            <strong>{getLocationLabel(draftLocation)}</strong>
+            <span>{resolving ? 'Đang nhận diện khu vực...' : (formatCoordinates(draftLocation) || 'Chưa có tọa độ')}</span>
+          </div>
+        </div>
+
+        {error ? <p className="profile-location-error">{error}</p> : null}
+
+        <div className="profile-modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Hủy</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!canConfirm || resolving}
+            onClick={() => {
+              onChange(normalizeProfileLocation(draftLocation))
+              onClose()
+            }}
+          >
+            {resolving ? 'Đang lấy khu vực...' : 'Xác nhận khu vực'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 const ProfilePage = () => {
   const navigate = useNavigate()
@@ -13,6 +295,7 @@ const ProfilePage = () => {
   // Form states
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
+  const [profileLocation, setProfileLocation] = useState(() => normalizeProfileLocation())
   const [avatar, setAvatar] = useState('')
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState('')
@@ -31,6 +314,7 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
   const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
   const [profileErrors, setProfileErrors] = useState({})
   const displayNameRef = useRef(null)
   const bioRef = useRef(null)
@@ -40,6 +324,7 @@ const ProfilePage = () => {
     if (user) {
       setDisplayName(user.displayName || user.fullName || user.username || '')
       setBio(user.bio || '')
+      setProfileLocation(normalizeProfileLocation(user.location, user))
       setAvatar(user.avatar || '')
       setAvatarPreview(user.avatar || '')
     }
@@ -142,6 +427,9 @@ const ProfilePage = () => {
       const response = await userService.updateProfile({
         displayName: displayName.trim(),
         bio: bio.trim(),
+        province: profileLocation.province || '',
+        district: profileLocation.district || '',
+        location: profileLocation,
       })
 
       const responseUser = response.data?.user || {}
@@ -151,6 +439,10 @@ const ProfilePage = () => {
         displayName.trim()
       const nextBio = responseUser.bio ?? bio.trim()
       const nextAvatar = responseUser.avatar || user?.avatar || avatar
+      const nextProfileLocation = normalizeProfileLocation(responseUser.location, {
+        province: responseUser.province ?? profileLocation.province,
+        district: responseUser.district ?? profileLocation.district,
+      })
 
       const updatedUser = {
         ...user,
@@ -159,11 +451,15 @@ const ProfilePage = () => {
         fullName: responseUser.fullName || nextDisplayName,
         bio: nextBio,
         avatar: nextAvatar,
+        province: nextProfileLocation.province,
+        district: nextProfileLocation.district,
+        location: nextProfileLocation,
       }
 
       updateUser(updatedUser)
       setDisplayName(nextDisplayName)
       setBio(nextBio)
+      setProfileLocation(nextProfileLocation)
       setAvatar(nextAvatar)
       setAvatarPreview(nextAvatar)
 
@@ -406,6 +702,22 @@ const ProfilePage = () => {
               <small id="bio-count">{bio.length}/200</small>
             </div>
 
+            <div className="form-group">
+              <label>Khu vực sinh sống</label>
+              <button
+                type="button"
+                className="profile-location-button"
+                onClick={() => setShowLocationPicker(true)}
+                disabled={loading}
+              >
+                <span>
+                  <strong>{getLocationLabel(profileLocation)}</strong>
+                  <small>{formatCoordinates(profileLocation) || 'Chọn trên bản đồ để tự nhận diện tỉnh/quận'}</small>
+                </span>
+                <em>Chọn bản đồ</em>
+              </button>
+            </div>
+
             <button
               className="btn btn-primary"
               onClick={handleUpdateProfile}
@@ -528,6 +840,14 @@ const ProfilePage = () => {
           </div>
         </div>
       )}
+
+      {showLocationPicker ? (
+        <ProfileLocationPicker
+          value={profileLocation}
+          onChange={setProfileLocation}
+          onClose={() => setShowLocationPicker(false)}
+        />
+      ) : null}
     </div>
   )
 }

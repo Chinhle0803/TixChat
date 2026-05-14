@@ -180,7 +180,14 @@ export const createPostApi = (apiClient) => ({
   addReaction: (postId, reactionType) => apiClient.post(`/posts/${postId}/reactions`, { reactionType }),
   removeReaction: (postId, reactionType) => apiClient.delete(`/posts/${postId}/reactions/${reactionType}`),
   listComments: (postId, params = {}) => apiClient.get(`/posts/${postId}/comments`, { params }),
-  createComment: (postId, content) => apiClient.post(`/posts/${postId}/comments`, { content }),
+  createComment: (postId, payload) => apiClient.post(
+    `/posts/${postId}/comments`,
+    typeof payload === 'string' ? { content: payload } : payload
+  ),
+  addCommentReaction: (postId, commentId, reactionType) =>
+    apiClient.post(`/posts/${postId}/comments/${commentId}/reactions`, { reactionType }),
+  removeCommentReaction: (postId, commentId, reactionType) =>
+    apiClient.delete(`/posts/${postId}/comments/${commentId}/reactions/${reactionType}`),
   createUploadUrl: (payload) => apiClient.post('/posts/upload-url', payload),
   nearby: (params = {}) => apiClient.get('/posts/nearby', { params }),
   inBounds: (params = {}) => apiClient.get('/posts/in-bounds', { params }),

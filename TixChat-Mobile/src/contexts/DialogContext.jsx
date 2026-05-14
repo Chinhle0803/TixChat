@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useCallback } from 'react'
 import { useUiStore } from '../stores/uiStore'
+import AppDialogModal from '../components/AppDialogModal'
 
 const DialogContext = createContext(null)
 
@@ -91,6 +92,18 @@ export const DialogProvider = ({ children }) => {
   return (
     <DialogContext.Provider value={value}>
       {children}
+      <AppDialogModal
+        visible={dialog?.visible}
+        title={dialog?.title}
+        message={dialog?.message}
+        actions={dialog?.actions}
+        inputProps={dialog?.inputProps}
+        isPrompt={dialog?.isPrompt}
+        onClose={() => {
+          closeDialog()
+          clearDialog()
+        }}
+      />
     </DialogContext.Provider>
   )
 }

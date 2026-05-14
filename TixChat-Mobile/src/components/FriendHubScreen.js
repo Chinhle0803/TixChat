@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -11,7 +11,8 @@ import {
 } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { userApi } from '../services/api'
+import { conversationApi, userApi } from '../services/api'
+import { MobileBottomTabBar } from './ui'
 
 const normalizeId = (value) => {
   if (!value) return ''
@@ -26,7 +27,82 @@ const getDisplayName = (user) => {
   return user.nickname || user.displayName || user.fullName || user.name || user.username || 'Người dùng'
 }
 
-const getAvatarUri = (user) => String(user?.avatar || user?.photoURL || user?.profilePicture || '')
+const getAvatarValue = (source) => {
+  if (!source) return ''
+
+  const values = [
+    source?.avatar?.url,
+    source?.avatar?.src,
+    source?.avatar,
+    source?.avatarUrl,
+    source?.photoURL,
+    source?.profilePicture?.url,
+    source?.profilePicture,
+    source?.profileImage?.url,
+    source?.profileImage,
+    source?.profileImageUrl,
+    source?.picture?.url,
+    source?.picture,
+    source?.imageUrl,
+    source?.image,
+    source?.photo,
+  ]
+
+  return values.find((item) => typeof item === 'string' && item.trim()) || ''
+}
+
+const getAvatarUri = (user) => String(getAvatarValue(user))
+
+const userMatchesKeyword = (user, keyword) => {
+  const text = [
+    user?.nickname,
+    user?.displayName,
+    user?.fullName,
+    user?.name,
+    user?.username,
+    user?.email,
+    user?.phone,
+    user?.phoneNumber,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  return text.includes(String(keyword || '').trim().toLowerCase())
+}
+
+const getConversationCounterpart = (conversation, currentUserId) => {
+  const participants = conversation?.participants || []
+  return participants.find((participant) => (
+    normalizeId(participant?.userId || participant?._id || participant?.id || participant) !== normalizeId(currentUserId)
+  )) || null
+}
+
+const buildSearchUserFromConversation = (conversation, currentUserId) => {
+  const counterpart = getConversationCounterpart(conversation, currentUserId)
+  if (!counterpart || typeof counterpart !== 'object') return null
+
+  return {
+    ...counterpart,
+    isFriend: true,
+    relationStatus: 'friend',
+    existingConversationId: normalizeId(conversation?._id || conversation?.conversationId),
+  }
+}
+
+const dedupeUsers = (users) => {
+  const seen = new Set()
+  const result = []
+
+  ;(users || []).forEach((user) => {
+    const userId = normalizeId(user?.userId || user?._id || user?.id)
+    if (!userId || seen.has(userId)) return
+    seen.add(userId)
+    result.push(user)
+  })
+
+  return result
+}
 
 const getStatusLabel = (user) => {
   if (user?.isOnline) return 'Đang hoạt động'
@@ -67,12 +143,10 @@ const Avatar = ({ user, size = 54, showOnlineDot = false }) => {
 
 export default function FriendHubScreen({
   currentUserId,
-  onBack,
   onStartConversation,
-  onOpenCreateGroup,
   onOpenConversations,
-  onOpenDiscover,
-  onOpenDiary,
+  onOpenUrban,
+  onOpenAssistant,
   onOpenProfile,
 }) {
   const insets = useSafeAreaInsets()
@@ -84,11 +158,14 @@ export default function FriendHubScreen({
   const [pendingRequestIds, setPendingRequestIds] = useState([])
   const [pendingRequestUsers, setPendingRequestUsers] = useState([])
   const [sentRequestIds, setSentRequestIds] = useState([])
+  const [showingSuggestedUsers, setShowingSuggestedUsers] = useState(false)
+  const [hasSearched, setHasSearched] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [actionLoading, setActionLoading] = useState({})
   const [error, setError] = useState('')
+  const searchInputRef = useRef(null)
 
   const friendSet = useMemo(() => new Set(friendIds.map((id) => normalizeId(id))), [friendIds])
   const pendingSet = useMemo(() => new Set(pendingRequestIds.map((id) => normalizeId(id))), [pendingRequestIds])
@@ -149,21 +226,59 @@ export default function FriendHubScreen({
     refreshData()
   }, [refreshData])
 
+  const handleQueryChange = (value) => {
+    setQuery(value)
+    if (!String(value || '').trim()) {
+      setSearchResults([])
+      setShowingSuggestedUsers(false)
+      setHasSearched(false)
+    }
+  }
+
   const handleSearch = async () => {
     const keyword = query.trim()
     if (!keyword) {
       setSearchResults([])
+      setShowingSuggestedUsers(false)
+      setHasSearched(false)
       return
     }
 
     setSearching(true)
     setError('')
+    setHasSearched(true)
     try {
-      const response = await userApi.searchUsers(keyword)
+      const response = await conversationApi.searchConversations(keyword)
       const users = response?.data?.users || []
-      setSearchResults(users.filter((u) => normalizeId(u.userId || u._id) !== normalizeId(currentUserId)))
+      const suggestions = response?.data?.suggestions || []
+      const conversationUsers = (response?.data?.conversations || [])
+        .map((conversation) => buildSearchUserFromConversation(conversation, currentUserId))
+        .filter(Boolean)
+      const localFriendMatches = friendUsers
+        .filter((friendUser) => userMatchesKeyword(friendUser, keyword))
+        .map((friendUser) => ({
+          ...friendUser,
+          isFriend: true,
+          relationStatus: 'friend',
+        }))
+
+      const directMatches = dedupeUsers([
+        ...conversationUsers,
+        ...users,
+        ...localFriendMatches,
+      ]).filter((u) => normalizeId(u.userId || u._id || u.id) !== normalizeId(currentUserId))
+
+      const shouldShowSuggestions = directMatches.length === 0 && suggestions.length > 0
+      const nextResults = shouldShowSuggestions
+        ? suggestions.filter((u) => normalizeId(u.userId || u._id || u.id) !== normalizeId(currentUserId))
+        : directMatches
+
+      setShowingSuggestedUsers(shouldShowSuggestions)
+      setSearchResults(nextResults)
     } catch (searchError) {
       setError(getErrorMessage(searchError, 'Không thể tìm kiếm người dùng'))
+      setSearchResults([])
+      setShowingSuggestedUsers(false)
     } finally {
       setSearching(false)
     }
@@ -212,35 +327,92 @@ export default function FriendHubScreen({
   return (
     <View style={styles.screen}>
       <View style={[styles.topHeader, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.topTitleRow} onPress={onBack}>
-          <MaterialCommunityIcons name="magnify" style={styles.topIcon} />
-          <Text style={styles.topTitle}>Tìm kiếm</Text>
-        </Pressable>
-        <Pressable style={styles.topRightBtn} onPress={onOpenCreateGroup}>
-          <MaterialCommunityIcons name="account-plus" style={styles.topIcon} />
+        <Pressable
+          style={[styles.searchInputWrap, styles.headerSearchInputWrap]}
+          onPress={() => searchInputRef.current?.focus?.()}
+        >
+          <MaterialCommunityIcons name="magnify" style={styles.searchIcon} />
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            value={query}
+            onChangeText={handleQueryChange}
+            placeholder="Tìm bạn bè theo tên hoặc số điện thoại"
+            placeholderTextColor="#667085"
+            autoCapitalize="none"
+            returnKeyType="search"
+            onSubmitEditing={handleSearch}
+          />
+          <Pressable style={styles.searchAction} onPress={handleSearch} disabled={searching}>
+            {searching ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.searchActionText}>Tìm</Text>
+            )}
+          </Pressable>
         </Pressable>
       </View>
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.searchInputWrap}>
-          <MaterialCommunityIcons name="magnify" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Tìm bạn bè theo tên hoặc số điện thoại"
-            placeholderTextColor="#667085"
-            autoCapitalize="none"
-            onSubmitEditing={handleSearch}
-          />
-          <Pressable style={styles.searchAction} onPress={handleSearch}>
-            <Text style={styles.searchActionText}>{searching ? '...' : 'Tìm'}</Text>
-          </Pressable>
-        </View>
+        {searchResults.length > 0 || hasSearched ? (
+          <View style={styles.searchResultWrap}>
+            <Text style={styles.searchResultTitle}>{showingSuggestedUsers ? 'Gợi ý kết bạn' : 'Kết quả tìm kiếm'}</Text>
+            {searching ? <ActivityIndicator color="#0f5ed7" /> : null}
+            {searchResults.map((user) => {
+              const userId = normalizeId(user.userId || user._id || user.id)
+              const isFriend = Boolean(user?.isFriend || user?.relationStatus === 'friend' || friendSet.has(userId))
+              const isPending = Boolean(user?.requestReceived || user?.relationStatus === 'request_received' || pendingSet.has(userId))
+              const isSent = Boolean(user?.requestSent || user?.relationStatus === 'request_sent' || sentSet.has(userId))
+
+              return (
+                <View key={userId} style={styles.searchResultRow}>
+                  <Avatar user={user} />
+                  <View style={styles.friendInfo}>
+                    <Text numberOfLines={1} style={styles.friendName}>{getDisplayName(user)}</Text>
+                    <Text numberOfLines={2} style={styles.friendStatus}>
+                      {isFriend
+                        ? user?.existingConversationId
+                          ? 'Đã kết bạn • Mở cuộc trò chuyện cũ'
+                          : 'Đã kết bạn • Tạo cuộc trò chuyện mới'
+                        : isPending
+                          ? 'Đã nhận lời mời kết bạn'
+                          : isSent
+                            ? 'Đã gửi lời mời kết bạn'
+                            : 'Chưa là bạn bè • Gửi lời mời kết bạn'}
+                    </Text>
+                  </View>
+
+                  {isFriend ? (
+                    <Pressable style={styles.acceptBtn} onPress={() => onStartConversation?.(userId)}>
+                      <Text style={styles.acceptBtnText}>Nhắn tin</Text>
+                    </Pressable>
+                  ) : isPending ? (
+                    <Pressable style={styles.acceptBtn} onPress={() => handleAcceptRequest(userId)}>
+                      <Text style={styles.acceptBtnText}>Đồng ý</Text>
+                    </Pressable>
+                  ) : isSent ? (
+                    <View style={styles.sentBtn}>
+                      <Text style={styles.sentBtnText}>Đã gửi</Text>
+                    </View>
+                  ) : (
+                    <Pressable style={styles.acceptBtn} onPress={() => handleSendRequest(userId)}>
+                      <Text style={styles.acceptBtnText}>Kết bạn</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )
+            })}
+            {!searching && searchResults.length === 0 ? (
+              <Text style={styles.emptyText}>Không có gợi ý phù hợp</Text>
+            ) : null}
+          </View>
+        ) : null}
+
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Lời mời kết bạn</Text>
@@ -320,71 +492,19 @@ export default function FriendHubScreen({
           )}
         </View>
 
-        {searchResults.length > 0 ? (
-          <View style={styles.searchResultWrap}>
-            <Text style={styles.searchResultTitle}>Kết quả tìm kiếm</Text>
-            {searchResults.map((user) => {
-              const userId = normalizeId(user.userId || user._id)
-              const isFriend = friendSet.has(userId)
-              const isPending = pendingSet.has(userId)
-              const isSent = sentSet.has(userId)
-
-              return (
-                <View key={userId} style={styles.searchResultRow}>
-                  <Avatar user={user} />
-                  <View style={styles.friendInfo}>
-                    <Text style={styles.friendName}>{getDisplayName(user)}</Text>
-                    <Text style={styles.friendStatus}>@{user?.username || 'unknown'}</Text>
-                  </View>
-
-                  {isFriend ? (
-                    <Pressable style={styles.acceptBtn} onPress={() => onStartConversation?.(userId)}>
-                      <Text style={styles.acceptBtnText}>Nhắn tin</Text>
-                    </Pressable>
-                  ) : isPending ? (
-                    <Pressable style={styles.acceptBtn} onPress={() => handleAcceptRequest(userId)}>
-                      <Text style={styles.acceptBtnText}>Đồng ý</Text>
-                    </Pressable>
-                  ) : isSent ? (
-                    <View style={styles.sentBtn}>
-                      <Text style={styles.sentBtnText}>Đã gửi</Text>
-                    </View>
-                  ) : (
-                    <Pressable style={styles.acceptBtn} onPress={() => handleSendRequest(userId)}>
-                      <Text style={styles.acceptBtnText}>Kết bạn</Text>
-                    </Pressable>
-                  )}
-                </View>
-              )
-            })}
-          </View>
-        ) : null}
-
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
 
-      <View style={[styles.bottomTabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <Pressable style={styles.tabItem} onPress={onOpenConversations || onBack}>
-          <MaterialCommunityIcons name="message-text-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Tin nhắn</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem}>
-          <MaterialCommunityIcons name="card-account-details-outline" style={[styles.tabIcon, styles.tabIconActive]} />
-          <Text style={[styles.tabLabel, styles.tabLabelActive]}>Danh bạ</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={onOpenDiscover}>
-          <MaterialCommunityIcons name="compass-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Khám phá</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={onOpenDiary}>
-          <MaterialCommunityIcons name="book-open-page-variant-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Nhật ký</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={onOpenProfile}>
-          <MaterialCommunityIcons name="account-outline" style={styles.tabIcon} />
-          <Text style={styles.tabLabel}>Cá nhân</Text>
-        </Pressable>
-      </View>
+      <MobileBottomTabBar
+        active="Friends"
+        badges={{ Friends: pendingRequestIds.length }}
+        onNavigate={{
+          Chats: onOpenConversations,
+          Urban: onOpenUrban,
+          Assistant: onOpenAssistant,
+          Profile: onOpenProfile,
+        }}
+      />
     </View>
   )
 }
@@ -402,28 +522,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e8edf4',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  topTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  topTitle: {
-    color: '#0f5ed7',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  topIcon: {
-    color: '#0f5ed7',
-    fontSize: 28,
-  },
-  topRightBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   scroll: {
     flex: 1,
@@ -442,6 +541,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 22,
     gap: 10,
+  },
+  headerSearchInputWrap: {
+    flex: 1,
+    minHeight: 48,
+    marginBottom: 0,
+    borderRadius: 24,
+    backgroundColor: '#eef2ff',
   },
   searchIcon: {
     fontSize: 28,
@@ -562,6 +668,7 @@ const styles = StyleSheet.create({
   },
   friendInfo: {
     flex: 1,
+    minWidth: 0,
   },
   friendName: {
     color: '#111827',
@@ -589,7 +696,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
-    marginBottom: 10,
+    marginBottom: 22,
     borderWidth: 1,
     borderColor: '#ecf0f5',
   },

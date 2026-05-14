@@ -4,6 +4,8 @@
   grid-template-columns: 260px minmax(0, 1fr);
   background: var(--tc-background);
   color: var(--tc-neutral-900);
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 /* shadcn-like soft visual pass */
@@ -40,6 +42,10 @@
   padding: 18px 24px 40px !important;
 }
 
+.urban-main-map {
+  padding: 12px !important;
+}
+
 .urban-top-nav {
   position: sticky;
   top: 0;
@@ -55,11 +61,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
   justify-content: space-around;
 }
 
 .urban-top-nav a {
+  flex: 1 1 0;
   min-height: 38px;
   padding: 0 14px;
   border-radius: var(--radius-md);
@@ -68,13 +74,25 @@
   align-items: center;
   justify-content: center;
   text-decoration: none;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .urban-top-nav a:hover,
 .urban-top-nav a.active {
   background: var(--accent);
   color: var(--accent-foreground);
+}
+
+.urban-top-nav-floating {
+  position: relative;
+  top: auto;
+  z-index: 4;
+  width: min(560px, 100%);
+  margin: 0 auto 12px;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
 }
 
 @media (max-width: 780px) {
@@ -114,7 +132,6 @@
 }
 
 .urban-feed-top h1,
-.urban-map-header h1,
 .urban-author-line a,
 .urban-side-card h2,
 .urban-comments h2,
@@ -129,7 +146,6 @@
 .urban-location,
 .urban-muted,
 .urban-empty,
-.urban-map-header p,
 .urban-map-panel p {
   color: var(--muted-foreground) !important;
 }
@@ -155,64 +171,6 @@
 
 .urban-page {
   display: block !important;
-}
-
-.urban-main {
-  width: 100% !important;
-  min-height: 100vh;
-  padding: 18px 24px 40px !important;
-}
-
-.urban-top-nav {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  width: min(1015px, 100%);
-  margin: 0 auto 16px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.urban-top-nav a {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: var(--radius-md);
-  color: var(--muted-foreground);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-  font-weight: 750;
-}
-
-.urban-top-nav a:hover,
-.urban-top-nav a.active {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
-@media (max-width: 780px) {
-  .urban-main {
-    padding: 12px !important;
-  }
-
-  .urban-top-nav {
-    overflow-x: auto;
-    justify-content: flex-start;
-    border-radius: var(--radius-lg);
-  }
-
-  .urban-top-nav a {
-    white-space: nowrap;
-    flex: 0 0 auto;
-  }
 }
 
 .urban-actions {
@@ -315,14 +273,19 @@
 }
 
 .urban-comment-actions button {
-  min-height: 28px;
+  min-width: 30px;
+  min-height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: transparent;
   color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .urban-comment-actions button:hover,
@@ -331,8 +294,8 @@
   color: var(--accent-foreground);
 }
 
-.urban-comment-actions button span {
-  margin-right: 4px;
+.urban-comment-actions button svg {
+  font-size: 14px;
 }
 
 .urban-comment-replies {
@@ -357,6 +320,36 @@
 .urban-reply-form .urban-reply-cancel {
   background: var(--muted) !important;
   color: var(--muted-foreground) !important;
+}
+
+.urban-inline-comments {
+  border-top: 1px solid var(--border);
+  padding: 12px 14px 14px;
+  display: grid;
+  gap: 10px;
+  background: color-mix(in srgb, var(--card) 80%, var(--background));
+}
+
+.urban-inline-comment-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.urban-inline-comment-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.urban-inline-send {
+  width: 40px;
+  height: 40px;
+  padding: 0 !important;
+  border-radius: 999px !important;
+}
+
+.urban-inline-comment-tree {
+  display: grid;
 }
 
 @media (max-width: 780px) {
@@ -412,7 +405,6 @@
 .urban-side-card,
 .urban-detail,
 .urban-comments,
-.urban-map-header,
 .urban-assistant-placeholder {
   background: var(--surface-tint) !important;
 }
@@ -583,7 +575,7 @@
   background: var(--accent);
 }
 
-.urban-image-tools > div:first-child {
+.urban-image-tools>div:first-child {
   display: grid;
   gap: 4px;
   min-width: 0;
@@ -939,6 +931,14 @@
   background: #1877f2;
   color: #ffffff;
   font-weight: 900;
+  overflow: hidden;
+}
+
+.urban-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .urban-avatar-soft {
@@ -953,7 +953,9 @@
   border-radius: 999px;
   background: #f0f2f5;
   color: #65676b;
+  font-size: 14px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   padding: 0 16px;
 }
 
@@ -1059,7 +1061,10 @@
   background: #1877f2;
   color: #ffffff;
   padding: 10px 14px;
-  font-weight: 800;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1304,7 +1309,10 @@
   min-height: 40px;
   padding: 0 8px;
   border-radius: 6px;
-  font-size: 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .urban-actions button:hover,
@@ -1459,40 +1467,49 @@
 
 .urban-map-page {
   display: grid;
-  gap: 14px;
-  width: min(1180px, 100%);
+  gap: 12px;
+  width: 100%;
 }
 
-.urban-map-header {
+.urban-map-page-head {
+  width: 100%;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: flex-start;
 }
 
-.urban-map-header h1 {
+.urban-map-page-head h1 {
   margin: 0;
-  font-size: 28px;
-  color: #050505;
-}
-
-.urban-map-header p {
-  margin: 4px 0 0;
-  color: #65676b;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
 }
 
 .urban-map-toolbar {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
+  pointer-events: auto;
 }
 
 .urban-map-toolbar button {
-  min-height: 40px;
-  background: #ffffff;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.96);
   color: #1877f2;
-  border: 1px solid #dddfe2;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(221, 223, 226, 0.95);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
 }
 
 .urban-map-shell {
@@ -1505,6 +1522,11 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+.urban-map-shell-immersive {
+  min-height: calc(100vh - 120px);
+  border-radius: 24px;
+}
+
 .urban-map-canvas {
   position: absolute;
   inset: 0;
@@ -1514,7 +1536,7 @@
 .urban-map-error {
   position: absolute;
   left: 18px;
-  top: 18px;
+  top: 112px;
   z-index: 2;
   max-width: min(360px, calc(100% - 36px));
   padding: 14px 16px;
@@ -1538,26 +1560,26 @@
 
 .urban-map-panel {
   position: absolute;
-  right: 18px;
-  top: 18px;
+  left: 18px;
+  bottom: 18px;
   z-index: 2;
-  width: 220px;
+  width: min(320px, calc(100% - 36px));
   max-width: calc(100% - 36px);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid #dddfe2;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
 }
 
 .urban-map-panel div {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  min-height: 52px;
+  display: grid;
+  gap: 2px;
+  align-content: center;
   color: #65676b;
 }
 
@@ -1567,70 +1589,107 @@
 }
 
 .urban-map-panel p {
-  margin: 4px 0 0;
+  grid-column: 1 / -1;
+  margin: 0;
   color: #65676b;
   font-size: 13px;
 }
 
 .urban-map-pin {
-  width: 34px;
-  height: 34px;
+  position: relative;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 2px solid rgba(255, 255, 255, 0.96);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
-  color: #111827;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(15, 23, 42, 0.18);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
 
 .urban-map-pin.selected {
-  width: 40px;
-  height: 40px;
-  border-width: 3px;
-  box-shadow:
-    0 0 0 7px rgba(37, 99, 235, 0.2),
-    0 10px 24px rgba(15, 23, 42, 0.24);
+  transform: scale(1.12);
+  box-shadow: none;
   z-index: 2;
 }
 
+.urban-map-pin:hover {
+  transform: translateY(-2px) scale(1.06);
+}
+
 .urban-map-pin-icon {
-  font-size: 17px;
-  line-height: 1;
-  transform: translateY(-0.5px);
-  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--urban-marker-color, #1877f2);
+  line-height: 0;
+  filter:
+    drop-shadow(0 2px 0 rgba(255, 255, 255, 0.98))
+    drop-shadow(0 4px 10px rgba(15, 23, 42, 0.3));
+}
+
+.urban-map-pin-icon-svg {
+  width: 24px;
+  height: 24px;
+}
+
+.urban-map-pin-status {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--urban-marker-status-color, #1877f2);
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.22);
 }
 
 .urban-map-popup {
-  width: 240px;
+  width: 100%;
+  max-width: 240px;
   display: grid;
-  gap: 7px;
+  gap: 9px;
   color: #1c1e21;
+  box-sizing: border-box;
+}
+
+.urban-map-popup-head {
+  display: grid;
+  gap: 8px;
+  padding-right: 28px;
 }
 
 .urban-map-popup strong {
+  display: block;
+  margin: 0;
   font-size: 15px;
+  line-height: 1.3;
 }
 
 .urban-map-popup p {
   margin: 0;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .urban-map-popup small {
   color: #65676b;
+  overflow-wrap: anywhere;
 }
 
 .urban-map-popup a {
+  width: 100%;
   min-height: 34px;
   padding: 0 12px;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   background: #1877f2;
   color: #ffffff;
   text-decoration: none;
@@ -1640,7 +1699,7 @@
 .urban-popup-status {
   width: fit-content;
   border-radius: 999px;
-  padding: 4px 8px;
+  padding: 5px 10px;
   background: #fff4df;
   color: #8a5200;
   font-size: 12px;
@@ -1673,23 +1732,41 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  line-height: 1;
 }
 
-.urban-map-legend i {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-style: normal;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+.urban-map-legend-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  display: block;
+  color: currentColor;
 }
 
 .maplibregl-popup-content {
-  border-radius: 8px;
+  position: relative;
+  width: 268px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 14px 12px;
+  border-radius: 14px;
+  box-sizing: border-box;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+
+.maplibregl-popup-close-button {
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #2c7be5;
+  color: #ffffff;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.maplibregl-popup-close-button:hover {
+  background: #1f6fe0;
 }
 
 @media (max-width: 1120px) {
@@ -1697,28 +1774,14 @@
     grid-template-columns: 82px minmax(0, 1fr);
   }
 
-  .urban-nav {
-    align-items: stretch;
-  }
-
   .urban-nav a {
-    width: 100%;
-    gap: 0;
     justify-content: center;
-    align-items: center;
-    display: grid;
-    place-items: center;
     padding: 0;
     font-size: 0;
   }
 
   .urban-nav svg {
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
-    min-height: 22px;
     font-size: 22px;
-    flex: 0 0 22px;
   }
 
   .urban-social-layout {
@@ -1742,23 +1805,14 @@
     z-index: 2;
     height: auto;
     flex-direction: row;
-    justify-content: space-between;
-    align-items: stretch;
-    overflow-x: visible;
+    overflow-x: auto;
     padding: 8px;
     border-bottom: 1px solid #dddfe2;
   }
 
   .urban-nav a {
-    flex: 1 1 0;
-    min-width: 0;
+    min-width: 52px;
     min-height: 44px;
-    width: auto;
-    gap: 0;
-    justify-content: center;
-    align-items: center;
-    display: grid;
-    place-items: center;
   }
 
   .urban-main {
@@ -1778,21 +1832,25 @@
     grid-template-columns: 1fr;
   }
 
-  .urban-map-header {
-    display: grid;
-  }
-
   .urban-map-shell {
     min-height: 560px;
+  }
+
+  .urban-map-shell-immersive {
+    min-height: calc(100vh - 96px);
   }
 
   .urban-map-panel {
     left: 12px;
     right: 12px;
-    top: auto;
     bottom: 12px;
     width: auto;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .urban-map-toolbar {
+    right: 12px;
+    bottom: 12px;
   }
 
   .urban-actions {

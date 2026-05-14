@@ -16,6 +16,7 @@
       "bundleIdentifier": "com.tixchat.mobile",
       "infoPlist": {
         "NSCameraUsageDescription": "TixChat needs camera access to take photos.",
+        "NSLocationWhenInUseUsageDescription": "TixChat needs location access to show your current position on the urban map.",
         "NSMicrophoneUsageDescription": "TixChat needs microphone access for calls.",
         "NSPhotoLibraryUsageDescription": "TixChat needs photo library access to send images.",
         "NSPhotoLibraryAddUsageDescription": "TixChat needs to save photos to your library."
@@ -29,6 +30,8 @@
       "package": "com.tixchat.mobile",
       "usesCleartextTraffic": true,
       "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.POST_NOTIFICATIONS",
