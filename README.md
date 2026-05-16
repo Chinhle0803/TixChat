@@ -39,7 +39,6 @@ Dự án được triển khai theo mô hình Monorepo chứa các thành phần
 - `/TixChat-Backend`: Mã nguồn máy chủ xử lý API, Realtek Socket, kết nối Database và AWS Services.
 - `/TixChat-Frontend`: Ứng dụng Web Client dành cho trình duyệt.
 - `/TixChat-Mobile`: Ứng dụng di động (Android/iOS) phát triển bằng React Native.
-- `/docs`: Thiết kế hệ thống, kiến trúc cơ sở dữ liệu, biểu đồ UML.
 
 ## Hướng dẫn Cài đặt
 
@@ -72,8 +71,3 @@ cd TixChat-Mobile
 npm install
 npx expo start
 ```
-
-
-## License & Bản quyền
-
-Dự án được phân phối với giấy phép MIT. Phụ vụ cho mục đích phát triển giáo dục và cộng đồng.

@@ -114,6 +114,7 @@ const AssistantPage = () => {
     const question = String(value || '').trim()
     if (!question || loading) return
 
+<<<<<<< HEAD
     const userMessage = createUserMessage(question)
     const requestHistory = buildHistoryPayload([...messages, userMessage])
 
@@ -139,6 +140,17 @@ const AssistantPage = () => {
     } finally {
       setLoading(false)
     }
+=======
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', content: question }
+    setMessages((current) => [...current, userMessage])
+    setInput('')
+    setLoading(true)
+
+    window.setTimeout(() => {
+      setMessages((current) => [...current, createAssistantResponse(question)])
+      setLoading(false)
+    }, 650)
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   }
 
   return (
@@ -148,25 +160,42 @@ const AssistantPage = () => {
           <div>
             <span className="assistant-eyebrow">Smart City Assistant</span>
             <h1>Trợ lý đô thị TixChat</h1>
+<<<<<<< HEAD
+=======
+            <p>Hỏi nhanh về giao thông, hạ tầng, cảnh báo khu vực và dữ liệu sự cố từ cộng đồng.</p>
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
           </div>
           <div className="assistant-orb" aria-hidden="true">AI</div>
         </header>
 
         {!hasMessages && (
           <section className="assistant-welcome">
+<<<<<<< HEAD
             {/* <div className="assistant-helper-grid">
               {welcomeCards.map((card) => (
+=======
+            <div className="assistant-helper-grid">
+              {helperCards.map((card) => (
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                 <article key={card.title} className="assistant-helper-card">
                   <span>{card.icon}</span>
                   <h2>{card.title}</h2>
                   <p>{card.text}</p>
                 </article>
               ))}
+<<<<<<< HEAD
             </div> */}
 
             <div className="assistant-suggestions">
               {(loadingSuggestions ? fallbackSuggestions : suggestions).map((suggestion) => (
                 <AISuggestionChip key={suggestion} onClick={() => askAssistant(suggestion)} disabled={loading}>
+=======
+            </div>
+
+            <div className="assistant-suggestions">
+              {suggestions.map((suggestion) => (
+                <AISuggestionChip key={suggestion} onClick={() => askAssistant(suggestion)}>
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                   {suggestion}
                 </AISuggestionChip>
               ))}
@@ -179,6 +208,7 @@ const AssistantPage = () => {
             {messages.map((message) => (
               <AIChatBubble key={message.id} role={message.role}>
                 <p>{message.content}</p>
+<<<<<<< HEAD
 
                 {message.disclaimer ? (
                   <div className="assistant-sources">{message.disclaimer}</div>
@@ -201,6 +231,27 @@ const AssistantPage = () => {
                   <div className="assistant-actions">
                     {message.actions.map((action) => (
                       <Button key={`${action.kind}-${action.target}`} as={Link} to={action.target} variant="secondary" size="sm">
+=======
+                {message.relatedIncidents?.length > 0 && (
+                  <div className="assistant-related">
+                    {message.relatedIncidents.map((incident) => (
+                      <article key={incident.title}>
+                        <strong>{incident.title}</strong>
+                        <span>{incident.status} · {incident.location}</span>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                {message.sources?.length > 0 && (
+                  <div className="assistant-sources">
+                    Nguồn: {message.sources.join(', ')}
+                  </div>
+                )}
+                {message.actions?.length > 0 && (
+                  <div className="assistant-actions">
+                    {message.actions.map((action) => (
+                      <Button key={action.to} as={Link} to={action.to} variant="secondary" size="sm">
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                         {action.label}
                       </Button>
                     ))}
@@ -208,6 +259,7 @@ const AssistantPage = () => {
                 )}
               </AIChatBubble>
             ))}
+<<<<<<< HEAD
 
             {loading ? (
               <AIChatBubble>
@@ -220,6 +272,13 @@ const AssistantPage = () => {
                 <p><FiAlertCircle aria-hidden="true" /> {errorMessage}</p>
               </AIChatBubble>
             ) : null}
+=======
+            {loading && (
+              <AIChatBubble>
+                <p>Assistant đang phân tích dữ liệu đô thị...</p>
+              </AIChatBubble>
+            )}
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
           </section>
         )}
 
@@ -235,7 +294,11 @@ const AssistantPage = () => {
             onChange={(event) => setInput(event.target.value)}
             placeholder="Hỏi về giao thông, hạ tầng hoặc cảnh báo khu vực..."
           />
+<<<<<<< HEAD
           <Button type="submit" icon={<FiSend />} disabled={!input.trim() || loading} loading={loading}>
+=======
+          <Button type="submit" icon={<FiSend />} disabled={!input.trim() || loading}>
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
             Gửi
           </Button>
         </form>

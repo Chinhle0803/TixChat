@@ -350,6 +350,7 @@ const sortMessagesAsc = (items) =>
     return tsA - tsB
   })
 
+<<<<<<< HEAD
 const MAX_IN_APP_BANNERS = 2
 
 const getInAppBannerId = (type, entityId) => `${String(type || 'system')}:${String(entityId || 'unknown')}`
@@ -434,6 +435,8 @@ const resolveCallBannerTitle = ({ call, conversation, currentUserId }) => {
   return getParticipantName(counterpart || call?.caller || conversation) || 'Cuộc gọi đến'
 }
 
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 const getRequestErrorMessage = (error, fallbackMessage) => {
   const serverMessage = String(
     error?.response?.data?.error || error?.response?.data?.message || ''
@@ -516,7 +519,10 @@ export default function AppRoot() {
   const [accessToken, setAccessToken] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('')
+<<<<<<< HEAD
   const [profileLocationPromptToken, setProfileLocationPromptToken] = useState(0)
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const [loadingConversations, setLoadingConversations] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -547,7 +553,10 @@ export default function AppRoot() {
     audioRoute: 'speaker',
     availableAudioRoutes: ['speaker'],
   })
+<<<<<<< HEAD
   const [inAppBanners, setInAppBanners] = useState([])
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const profileCacheRef = useRef({})
   const conversationsRef = useRef([])
   const conversationPreferencesRef = useRef({})
@@ -559,7 +568,10 @@ export default function AppRoot() {
   const acceptingMobileCallIdsRef = useRef(new Set())
   const mobileCallStateRef = useRef(mobileCallState)
   const pendingMobileJoinInfoRef = useRef(null)
+<<<<<<< HEAD
   const inAppBannerTimersRef = useRef(new Map())
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const activeConversationIdRef = useRef('')
   const typingTimeoutRef = useRef(null)
@@ -570,6 +582,7 @@ export default function AppRoot() {
     mobileCallStateRef.current = mobileCallState
   }, [mobileCallState])
 
+<<<<<<< HEAD
   const clearInAppBannerTimer = useCallback((bannerId) => {
     const timerId = inAppBannerTimersRef.current.get(bannerId)
     if (timerId) {
@@ -615,6 +628,8 @@ export default function AppRoot() {
     inAppBannerTimersRef.current.clear()
   }, [])
 
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const showAppDialog = useCallback(({ title, message, actions }) => {
     const safeActions = Array.isArray(actions) && actions.length > 0
       ? actions
@@ -1500,7 +1515,11 @@ export default function AppRoot() {
     }
   }, [])
 
+<<<<<<< HEAD
   const updateProfile = useCallback(async ({ displayName, bio, province, district, location }) => {
+=======
+  const updateProfile = useCallback(async ({ displayName, bio, province, district }) => {
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     setAuthLoading(true)
     setAuthError('')
 
@@ -1511,7 +1530,10 @@ export default function AppRoot() {
         bio,
         province,
         district,
+<<<<<<< HEAD
         location,
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       })
 
       const updated = response?.data?.user
@@ -1528,7 +1550,10 @@ export default function AppRoot() {
         bio: updated?.bio || bio || '',
         province: updated?.province ?? province ?? user?.province ?? '',
         district: updated?.district ?? district ?? user?.district ?? '',
+<<<<<<< HEAD
         location: updated?.location ?? location ?? user?.location ?? null,
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       }
 
       await applyAuth({
@@ -1547,6 +1572,7 @@ export default function AppRoot() {
     }
   }, [applyAuth, user, accessToken, refreshToken])
 
+<<<<<<< HEAD
   const openProfileLocationPicker = useCallback((navigation) => {
     setProfileLocationPromptToken(Date.now())
     navigation.navigate('Profile')
@@ -1573,6 +1599,8 @@ export default function AppRoot() {
     return opened
   }, [openConversation])
 
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const updatePassword = useCallback(async ({ currentPassword, newPassword, confirmPassword }) => {
     setAuthLoading(true)
     setAuthError('')
@@ -1889,7 +1917,10 @@ export default function AppRoot() {
       incomingCallNotificationIdsRef.current.delete(callId)
       incomingCallDialogIdsRef.current.delete(callId)
       acceptingMobileCallIdsRef.current.delete(callId)
+<<<<<<< HEAD
       dismissInAppBanner(getInAppBannerId('call', callId))
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
     pendingMobileJoinInfoRef.current = null
     setMobileCallState({
@@ -1904,7 +1935,11 @@ export default function AppRoot() {
       audioRoute: 'speaker',
       availableAudioRoutes: ['speaker'],
     })
+<<<<<<< HEAD
   }, [dismissInAppBanner])
+=======
+  }, [])
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const joinMobileCall = useCallback(async (joinInfo) => {
     const normalizedJoinInfo = normalizeJoinInfo(joinInfo)
@@ -2280,6 +2315,7 @@ export default function AppRoot() {
           }).catch((error) => {
             console.warn('Cannot show message notification:', error?.message || error)
           })
+<<<<<<< HEAD
 
           upsertInAppBanner({
             id: getInAppBannerId('message', messageId || conversationId),
@@ -2301,6 +2337,8 @@ export default function AppRoot() {
             persistent: false,
             expiresAt: Date.now() + 5000,
           })
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
         }
       }
 
@@ -2463,6 +2501,7 @@ export default function AppRoot() {
         })
       }
 
+<<<<<<< HEAD
       upsertInAppBanner({
         id: getInAppBannerId('call', callId),
         type: 'call',
@@ -2481,6 +2520,8 @@ export default function AppRoot() {
         persistent: true,
       })
 
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       if (!incomingCallDialogIdsRef.current.has(callId)) {
         incomingCallDialogIdsRef.current.add(callId)
         const callType = String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'
@@ -2524,7 +2565,10 @@ export default function AppRoot() {
       if (!callId) return
       incomingCallNotificationIdsRef.current.delete(callId)
       incomingCallDialogIdsRef.current.delete(callId)
+<<<<<<< HEAD
       dismissInAppBanner(getInAppBannerId('call', callId))
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
 
     const ringingCallHandler = (payload) => {
@@ -2551,7 +2595,12 @@ export default function AppRoot() {
       const callId = normalizeId(call?.callId)
       if (!callId) return
 
+<<<<<<< HEAD
       clearIncomingCallHandler(payload)
+=======
+      incomingCallNotificationIdsRef.current.delete(callId)
+      incomingCallDialogIdsRef.current.delete(callId)
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
       const currentCallId = normalizeId(mobileCallStateRef.current?.call?.callId)
       const phase = mobileCallStateRef.current?.phase
@@ -2687,11 +2736,17 @@ export default function AppRoot() {
     loadConversations,
     openConversation,
     acceptMobileCall,
+<<<<<<< HEAD
     dismissInAppBanner,
     joinMobileCall,
     resetMobileCall,
     showAppDialog,
     upsertInAppBanner,
+=======
+    joinMobileCall,
+    resetMobileCall,
+    showAppDialog,
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     upsertConversation,
   ])
 
@@ -2990,7 +3045,10 @@ export default function AppRoot() {
                   onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenUrban={() => navigation.navigate('UrbanIncidents')}
                   onOpenProfile={() => navigation.navigate('Profile')}
+<<<<<<< HEAD
                   onOpenProfileLocation={() => openProfileLocationPicker(navigation)}
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                   friendRequestCount={0}
                 />
               )}
@@ -3083,7 +3141,10 @@ export default function AppRoot() {
                   user={user}
                   loading={authLoading}
                   error={authError}
+<<<<<<< HEAD
                   openLocationPickerToken={profileLocationPromptToken}
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                   onBack={() => navigation.goBack()}
                   onUpdateAvatar={updateAvatar}
                   onUpdateProfile={updateProfile}
@@ -3156,6 +3217,7 @@ export default function AppRoot() {
           </>
         )}
       </Stack.Navigator>
+<<<<<<< HEAD
       <MobileInAppBannerHost
         banners={inAppBanners}
         onDismiss={dismissInAppBanner}
@@ -3183,6 +3245,8 @@ export default function AppRoot() {
           dismissInAppBanner(banner?.id)
         }}
       />
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       <MobileCallOverlay
         visible={mobileCallState.visible}
         call={mobileCallState.call}

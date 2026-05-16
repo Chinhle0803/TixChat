@@ -236,7 +236,6 @@ export default function ProfileScreen({
   const styles = useMemo(() => createStyles(theme), [theme])
   const c = theme.colors
   const insets = useSafeAreaInsets()
-
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [province, setProvince] = useState('')
