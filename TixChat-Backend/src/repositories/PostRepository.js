@@ -170,6 +170,26 @@ class PostRepository {
     return result.Attributes || null
   }
 
+  async updateLocation(postId, location) {
+    const normalizedLocation = normalizePostLocation(location)
+    const result = await docClient.send(new UpdateCommand({
+      TableName: POSTS_TABLE,
+      Key: { postId },
+      UpdateExpression: 'SET #location = :location, geohashPrefix = :geohashPrefix, updatedAt = :updatedAt',
+      ExpressionAttributeNames: {
+        '#location': 'location',
+      },
+      ExpressionAttributeValues: {
+        ':location': normalizedLocation,
+        ':geohashPrefix': normalizedLocation?.geohash ? String(normalizedLocation.geohash).slice(0, 6) : 'unknown',
+        ':updatedAt': new Date().toISOString(),
+      },
+      ReturnValues: 'ALL_NEW',
+    }))
+
+    return result.Attributes || null
+  }
+
   async updateReactions(postId, reactions) {
     const result = await docClient.send(new UpdateCommand({
       TableName: POSTS_TABLE,

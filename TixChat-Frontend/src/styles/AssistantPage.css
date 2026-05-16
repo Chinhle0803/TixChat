@@ -159,12 +159,23 @@
   gap: 8px;
 }
 
+.assistant-related a {
+  color: inherit;
+  text-decoration: none;
+}
+
 .assistant-related article {
   border: 1px solid var(--tc-border);
   border-radius: var(--tc-radius-md);
   padding: 10px;
   display: grid;
   gap: 3px;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.assistant-related a:hover article {
+  border-color: var(--tc-primary);
+  transform: translateY(-1px);
 }
 
 .assistant-related span,

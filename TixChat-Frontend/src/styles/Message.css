@@ -10,6 +10,20 @@
   max-width: min(70%, 720px);
 }
 
+.message-row {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.message-row.own {
+  flex-direction: row-reverse;
+}
+
+.message-row.other {
+  flex-direction: row;
+}
+
 .message.own {
   justify-content: flex-end;
 }
@@ -442,4 +456,8 @@
   .message-wrapper {
     max-width: 85%;
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c

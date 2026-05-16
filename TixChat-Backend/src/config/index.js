@@ -76,6 +76,27 @@ export const config = {
   dynamodbCommentsTable: process.env.DYNAMODB_COMMENTS_TABLE || 'tixchat-comments',
   dynamodbUrbanStatsTable: process.env.DYNAMODB_URBAN_STATS_TABLE || 'tixchat-urban-incident-stats',
 
+  // AI assistant
+  aiProvider: process.env.AI_PROVIDER || 'gemini',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
+  awsBearerTokenBedrock: process.env.AWS_BEARER_TOKEN_BEDROCK || '',
+  awsBedrockRegion: process.env.AWS_BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1',
+  awsBedrockModelId: process.env.AWS_BEDROCK_MODEL_ID || 'amazon.nova-micro-v1:0',
+  awsGeoPlacesRegion: process.env.AWS_GEO_PLACES_REGION || process.env.AWS_LOCATION_REGION || process.env.AWS_REGION || 'ap-southeast-2',
+  awsGeoRoutesRegion: process.env.AWS_GEO_ROUTES_REGION || process.env.AWS_LOCATION_REGION || process.env.AWS_REGION || 'ap-southeast-2',
+  awsGeoRouteMode: process.env.AWS_GEO_ROUTE_MODE || 'Car',
+  aiMaxContextPosts: parseInt(process.env.AI_MAX_CONTEXT_POSTS || '5', 10),
+  aiDefaultRadiusKm: parseInt(process.env.AI_DEFAULT_RADIUS_KM || '5', 10),
+  aiTimeoutMs: parseInt(process.env.AI_TIMEOUT_MS || '12000', 10),
+  assistantRouteSampleMeters: parseInt(process.env.ASSISTANT_ROUTE_SAMPLE_METERS || '150', 10),
+  assistantRouteIncidentRadiusMeters: parseInt(process.env.ASSISTANT_ROUTE_INCIDENT_RADIUS_METERS || '300', 10),
+  assistantMemoryTtlSeconds: parseInt(process.env.ASSISTANT_MEMORY_TTL_SECONDS || '1800', 10),
+  assistantMaxToolSteps: parseInt(process.env.ASSISTANT_MAX_TOOL_STEPS || '6', 10),
+  embeddingProvider: process.env.EMBEDDING_PROVIDER || '',
+  embeddingModel: process.env.EMBEDDING_MODEL || '',
+  opensearchVectorEndpoint: process.env.OPENSEARCH_VECTOR_ENDPOINT || '',
+
   // AWS Location Service Maps V2
   awsLocationRegion: process.env.AWS_LOCATION_REGION || process.env.AWS_REGION || 'us-east-1',
   awsLocationStyle: process.env.AWS_LOCATION_STYLE || 'Standard',

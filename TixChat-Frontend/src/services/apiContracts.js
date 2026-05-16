@@ -209,6 +209,11 @@ export const createPostApi = (apiClient) => ({
   inBounds: (params = {}) => apiClient.get('/posts/in-bounds', { params }),
 })
 
+export const createAssistantApi = (apiClient) => ({
+  getUrbanSuggestions: () => apiClient.get('/assistant/urban-suggestions'),
+  urbanChat: (payload) => apiClient.post('/assistant/urban-chat', payload),
+})
+
 export const createChatApiServices = (apiClient) => ({
   authApi: createAuthApi(apiClient),
   userApi: createUserApi(apiClient),
@@ -217,4 +222,5 @@ export const createChatApiServices = (apiClient) => ({
   callApi: createCallApi(apiClient),
   notificationApi: createNotificationApi(apiClient),
   postApi: createPostApi(apiClient),
+  assistantApi: createAssistantApi(apiClient),
 })

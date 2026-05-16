@@ -122,6 +122,33 @@ export const changePasswordValidation = (data) => {
   return schema.validate(data)
 }
 
+export const urbanAssistantChatValidation = (data) => {
+  const schema = joi.object({
+    question: joi.string().trim().min(2).max(1000).required().messages({
+      'string.empty': 'Question is required',
+      'string.min': 'Question must be at least 2 characters',
+      'string.max': 'Question must not exceed 1000 characters',
+    }),
+    history: joi.array().items(
+      joi.object({
+        role: joi.string().valid('user', 'assistant').required(),
+        content: joi.string().trim().min(1).max(1000).required(),
+      })
+    ).max(6).optional(),
+    location: joi.object({
+      lat: joi.number().min(-90).max(90).allow(null),
+      lng: joi.number().min(-180).max(180).allow(null),
+      address: joi.string().trim().max(500).allow('', null),
+      province: joi.string().trim().max(120).allow('', null),
+      district: joi.string().trim().max(120).allow('', null),
+    }).allow(null).optional(),
+    radiusKm: joi.number().min(1).max(50).optional(),
+    scope: joi.string().trim().max(120).allow('', null).optional(),
+  })
+
+  return schema.validate(data)
+}
+
 export const updateAvatarValidation = (data) => {
   const schema = joi.object({
     // File validation is handled by multer middleware

@@ -76,9 +76,9 @@ apiClient.interceptors.response.use(
   }
 )
 
-const { authApi, userApi, conversationApi, messageApi, notificationApi, callApi, postApi } = createChatApiServices(apiClient)
+const { authApi, userApi, conversationApi, messageApi, notificationApi, callApi, postApi, assistantApi } = createChatApiServices(apiClient)
 
-export { authApi, userApi, conversationApi, messageApi, notificationApi, callApi, postApi }
+export { authApi, userApi, conversationApi, messageApi, notificationApi, callApi, postApi, assistantApi }
 
 export const authService = {
   register: authApi.register,
@@ -93,5 +93,6 @@ export const messageService = messageApi
 export const notificationService = notificationApi
 export const callService = callApi
 export const postService = postApi
+export const assistantService = assistantApi
 
 export default apiClient

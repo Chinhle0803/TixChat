@@ -118,20 +118,38 @@ const Message = ({
   if (!message) return null
 
   // Normalize message field names
-  const senderId = normalizeId(message.senderId || message.userId || message.sender)
+  const senderId = normalizeId(
+    message?.senderId ||
+    message?.userId ||
+    message?.sender ||
+    message?.sender?._id ||
+    message?.sender?.userId ||
+    message?.sender?.id
+  )
   const messageId = message._id || message.messageId
 
   const normalizedCurrentUserId = normalizeId(currentUserId)
   const messageType = String(message?.type || '').toLowerCase()
   const messageMetadata = message?.metadata || {}
   const isCallMessage = messageMetadata?.kind === 'call'
-  const isSystemMessage = messageType === 'system' || message?.isSystem === true
+  const senderSystemName = String(
+    message?.senderName ||
+    message?.sender?.name ||
+    message?.sender?.username ||
+    ''
+  ).trim().toLowerCase()
+  const isSystemSender =
+    senderId === 'system' ||
+    senderId === 'tixchat-system' ||
+    senderSystemName === 'system' ||
+    senderSystemName === 'tixchat system'
+  const isSystemMessage = messageType === 'system' || message?.isSystem === true || isSystemSender
   const isEmojiMessage = messageType === 'emoji'
   const deletedBy = message?.deletedBy || {}
   const isGloballyDeleted = message?.isDeleted === true
   const isDeletedByMe = !!deletedBy[normalizedCurrentUserId]
   const isHidden = isGloballyDeleted || isDeletedByMe
-  const isOwnMessage = senderId !== '' && senderId === normalizedCurrentUserId
+  const isOwnMessage = !isSystemMessage && senderId !== '' && senderId === normalizedCurrentUserId
   const isSeen = message.seenBy && message.seenBy.length > 0
   const reactions = message.reactions || {}
   const reactionEntries = Object.entries(reactions).filter(([, userIds]) => Array.isArray(userIds) && userIds.length > 0)
@@ -176,7 +194,7 @@ const Message = ({
               <span className="message-sender-name">{senderDisplayName}</span>
             </div>
           )}
-          <div style={{ display: 'flex', flexDirection: isOwnMessage ? 'row-reverse' : 'row', alignItems: 'center' }}>
+          <div className={`message-row ${isOwnMessage ? 'own' : 'other'}`}>
             <div className="message-content">
               <p className="message-text deleted-placeholder">
                 {isGloballyDeleted ? 'Tin nhắn đã được gỡ' : 'Tin nhắn đã được xóa'}
@@ -251,7 +269,7 @@ const Message = ({
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: isOwnMessage ? 'row-reverse' : 'row', alignItems: 'center' }}>
+        <div className={`message-row ${isOwnMessage ? 'own' : 'other'}`}>
           <div className={`message-content ${isEmojiMessage ? 'emoji-message-content' : ''}`}>
         {replyPreview && (
           <div className="message-reply">

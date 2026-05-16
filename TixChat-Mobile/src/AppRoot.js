@@ -12,6 +12,7 @@ import ForgotPasswordScreen from './components/ForgotPasswordScreen'
 import ConversationListScreen from './components/ConversationListScreen'
 import ChatScreen from './components/ChatScreen'
 import MobileCallOverlay from './components/MobileCallOverlay'
+import MobileInAppBannerHost from './components/MobileInAppBannerHost'
 import ProfileScreen from './components/ProfileScreen'
 import FriendHubScreen from './components/FriendHubScreen'
 import CreateGroupScreen from './components/CreateGroupScreen'
@@ -349,6 +350,93 @@ const sortMessagesAsc = (items) =>
     return tsA - tsB
   })
 
+<<<<<<< HEAD
+const MAX_IN_APP_BANNERS = 2
+
+const getInAppBannerId = (type, entityId) => `${String(type || 'system')}:${String(entityId || 'unknown')}`
+
+const getInAppBannerPriority = (banner = {}) => {
+  const type = String(banner?.type || '').toLowerCase()
+  if (type === 'call') return 2
+  if (type === 'message') return 1
+  return 0
+}
+
+const sortInAppBanners = (items = []) =>
+  [...(items || [])].sort((left, right) => {
+    const priorityDiff = getInAppBannerPriority(right) - getInAppBannerPriority(left)
+    if (priorityDiff !== 0) return priorityDiff
+    return Number(right?.createdAt || 0) - Number(left?.createdAt || 0)
+  })
+
+const buildMessagePreview = (message = {}) => {
+  const content = String(message?.content || '').trim()
+  if (content) return content
+
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : []
+  if (attachments.length > 0) {
+    const firstType = String(attachments[0]?.type || attachments[0]?.mimeType || '').toLowerCase()
+    if (firstType.includes('image')) return 'Đã gửi một ảnh'
+    if (firstType.includes('video')) return 'Đã gửi một video'
+    return 'Đã gửi một tệp'
+  }
+
+  return 'Bạn có tin nhắn mới'
+}
+
+const resolveMessageBannerTitle = ({ message, conversation, currentUserId }) => {
+  const participants = Array.isArray(conversation?.participants) ? conversation.participants : []
+  const senderId = normalizeId(message?.senderId)
+  const sender = participants.find((participant) => {
+    const participantId = normalizeId(participant?._id || participant?.userId || participant?.id || participant)
+    return participantId && participantId === senderId
+  })
+  const senderName = senderId === 'system' ? 'TixChat' : getParticipantName(sender)
+  const isGroup = String(conversation?.type || '').toLowerCase() === 'group'
+
+  if (isGroup) {
+    return conversation?.name || 'Nhóm chat'
+  }
+
+  if (senderId && senderId !== currentUserId) {
+    return senderName
+  }
+
+  return conversation?.name || senderName || 'Tin nhắn mới'
+}
+
+const resolveMessageBannerBody = ({ message, conversation }) => {
+  const preview = buildMessagePreview(message)
+  const isGroup = String(conversation?.type || '').toLowerCase() === 'group'
+  if (!isGroup) return preview
+
+  const participants = Array.isArray(conversation?.participants) ? conversation.participants : []
+  const senderId = normalizeId(message?.senderId)
+  const sender = participants.find((participant) => {
+    const participantId = normalizeId(participant?._id || participant?.userId || participant?.id || participant)
+    return participantId && participantId === senderId
+  })
+  const senderName = senderId === 'system' ? 'TixChat' : getParticipantName(sender)
+  return `${senderName}: ${preview}`
+}
+
+const resolveCallBannerTitle = ({ call, conversation, currentUserId }) => {
+  if (String(conversation?.type || '').toLowerCase() === 'group') {
+    return conversation?.name || 'Nhóm chat'
+  }
+
+  const participants = Array.isArray(conversation?.participants) ? conversation.participants : []
+  const callerId = normalizeId(call?.callerId)
+  const counterpart = participants.find((participant) => {
+    const participantId = normalizeId(participant?._id || participant?.userId || participant?.id || participant)
+    return participantId && participantId !== currentUserId && participantId === callerId
+  })
+
+  return getParticipantName(counterpart || call?.caller || conversation) || 'Cuộc gọi đến'
+}
+
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 const getRequestErrorMessage = (error, fallbackMessage) => {
   const serverMessage = String(
     error?.response?.data?.error || error?.response?.data?.message || ''
@@ -431,6 +519,10 @@ export default function AppRoot() {
   const [accessToken, setAccessToken] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('')
+<<<<<<< HEAD
+  const [profileLocationPromptToken, setProfileLocationPromptToken] = useState(0)
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const [loadingConversations, setLoadingConversations] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -461,6 +553,10 @@ export default function AppRoot() {
     audioRoute: 'speaker',
     availableAudioRoutes: ['speaker'],
   })
+<<<<<<< HEAD
+  const [inAppBanners, setInAppBanners] = useState([])
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const profileCacheRef = useRef({})
   const conversationsRef = useRef([])
   const conversationPreferencesRef = useRef({})
@@ -472,6 +568,10 @@ export default function AppRoot() {
   const acceptingMobileCallIdsRef = useRef(new Set())
   const mobileCallStateRef = useRef(mobileCallState)
   const pendingMobileJoinInfoRef = useRef(null)
+<<<<<<< HEAD
+  const inAppBannerTimersRef = useRef(new Map())
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const activeConversationIdRef = useRef('')
   const typingTimeoutRef = useRef(null)
@@ -482,6 +582,54 @@ export default function AppRoot() {
     mobileCallStateRef.current = mobileCallState
   }, [mobileCallState])
 
+<<<<<<< HEAD
+  const clearInAppBannerTimer = useCallback((bannerId) => {
+    const timerId = inAppBannerTimersRef.current.get(bannerId)
+    if (timerId) {
+      clearTimeout(timerId)
+      inAppBannerTimersRef.current.delete(bannerId)
+    }
+  }, [])
+
+  const dismissInAppBanner = useCallback((bannerId) => {
+    if (!bannerId) return
+    clearInAppBannerTimer(bannerId)
+    setInAppBanners((prev) => prev.filter((banner) => banner.id !== bannerId))
+  }, [clearInAppBannerTimer])
+
+  const upsertInAppBanner = useCallback((banner = {}) => {
+    const normalizedBanner = {
+      id: String(banner?.id || `banner-${Date.now()}`),
+      type: String(banner?.type || 'system'),
+      title: String(banner?.title || 'Thông báo'),
+      body: String(banner?.body || ''),
+      data: banner?.data && typeof banner.data === 'object' ? banner.data : {},
+      persistent: Boolean(banner?.persistent),
+      createdAt: Number(banner?.createdAt || Date.now()),
+      expiresAt: banner?.persistent ? null : Number(banner?.expiresAt || Date.now() + 5000),
+    }
+
+    clearInAppBannerTimer(normalizedBanner.id)
+
+    if (!normalizedBanner.persistent && normalizedBanner.expiresAt) {
+      const remaining = Math.max(0, normalizedBanner.expiresAt - Date.now())
+      const timerId = setTimeout(() => dismissInAppBanner(normalizedBanner.id), remaining)
+      inAppBannerTimersRef.current.set(normalizedBanner.id, timerId)
+    }
+
+    setInAppBanners((prev) => {
+      const remaining = prev.filter((currentBanner) => currentBanner.id !== normalizedBanner.id)
+      return sortInAppBanners([...remaining, normalizedBanner]).slice(0, MAX_IN_APP_BANNERS)
+    })
+  }, [clearInAppBannerTimer, dismissInAppBanner])
+
+  useEffect(() => () => {
+    Array.from(inAppBannerTimersRef.current.values()).forEach((timerId) => clearTimeout(timerId))
+    inAppBannerTimersRef.current.clear()
+  }, [])
+
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const showAppDialog = useCallback(({ title, message, actions }) => {
     const safeActions = Array.isArray(actions) && actions.length > 0
       ? actions
@@ -1367,7 +1515,11 @@ export default function AppRoot() {
     }
   }, [])
 
+<<<<<<< HEAD
+  const updateProfile = useCallback(async ({ displayName, bio, province, district, location }) => {
+=======
   const updateProfile = useCallback(async ({ displayName, bio, province, district }) => {
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     setAuthLoading(true)
     setAuthError('')
 
@@ -1378,6 +1530,10 @@ export default function AppRoot() {
         bio,
         province,
         district,
+<<<<<<< HEAD
+        location,
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       })
 
       const updated = response?.data?.user
@@ -1394,6 +1550,10 @@ export default function AppRoot() {
         bio: updated?.bio || bio || '',
         province: updated?.province ?? province ?? user?.province ?? '',
         district: updated?.district ?? district ?? user?.district ?? '',
+<<<<<<< HEAD
+        location: updated?.location ?? location ?? user?.location ?? null,
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       }
 
       await applyAuth({
@@ -1412,6 +1572,35 @@ export default function AppRoot() {
     }
   }, [applyAuth, user, accessToken, refreshToken])
 
+<<<<<<< HEAD
+  const openProfileLocationPicker = useCallback((navigation) => {
+    setProfileLocationPromptToken(Date.now())
+    navigation.navigate('Profile')
+  }, [])
+
+  const openConversationFromBanner = useCallback(async (conversationId) => {
+    const normalizedConversationId = normalizeId(conversationId)
+    if (!normalizedConversationId) return false
+
+    const matchedConversation = conversationsRef.current.find((conversation) => {
+      const id = normalizeId(conversation?._id || conversation?.conversationId)
+      return id === normalizedConversationId
+    })
+
+    const opened = await openConversation(matchedConversation || {
+      _id: normalizedConversationId,
+      conversationId: normalizedConversationId,
+    })
+
+    if (opened) {
+      navigationRef.current?.navigate?.('Chat')
+    }
+
+    return opened
+  }, [openConversation])
+
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const updatePassword = useCallback(async ({ currentPassword, newPassword, confirmPassword }) => {
     setAuthLoading(true)
     setAuthError('')
@@ -1728,6 +1917,10 @@ export default function AppRoot() {
       incomingCallNotificationIdsRef.current.delete(callId)
       incomingCallDialogIdsRef.current.delete(callId)
       acceptingMobileCallIdsRef.current.delete(callId)
+<<<<<<< HEAD
+      dismissInAppBanner(getInAppBannerId('call', callId))
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
     pendingMobileJoinInfoRef.current = null
     setMobileCallState({
@@ -1742,7 +1935,11 @@ export default function AppRoot() {
       audioRoute: 'speaker',
       availableAudioRoutes: ['speaker'],
     })
+<<<<<<< HEAD
+  }, [dismissInAppBanner])
+=======
   }, [])
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const joinMobileCall = useCallback(async (joinInfo) => {
     const normalizedJoinInfo = normalizeJoinInfo(joinInfo)
@@ -2118,6 +2315,30 @@ export default function AppRoot() {
           }).catch((error) => {
             console.warn('Cannot show message notification:', error?.message || error)
           })
+<<<<<<< HEAD
+
+          upsertInAppBanner({
+            id: getInAppBannerId('message', messageId || conversationId),
+            type: 'message',
+            title: resolveMessageBannerTitle({
+              message,
+              conversation: matchedConversation || { _id: conversationId, conversationId },
+              currentUserId,
+            }),
+            body: resolveMessageBannerBody({
+              message,
+              conversation: matchedConversation || { _id: conversationId, conversationId },
+            }),
+            data: {
+              type: 'message',
+              messageId: messageId || conversationId,
+              conversationId,
+            },
+            persistent: false,
+            expiresAt: Date.now() + 5000,
+          })
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
         }
       }
 
@@ -2280,6 +2501,27 @@ export default function AppRoot() {
         })
       }
 
+<<<<<<< HEAD
+      upsertInAppBanner({
+        id: getInAppBannerId('call', callId),
+        type: 'call',
+        title: resolveCallBannerTitle({
+          call,
+          conversation: matchedConversation || { _id: conversationId, conversationId },
+          currentUserId,
+        }),
+        body: `Cuộc gọi ${String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'} đến`,
+        data: {
+          type: 'call',
+          callId,
+          conversationId,
+          call,
+        },
+        persistent: true,
+      })
+
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       if (!incomingCallDialogIdsRef.current.has(callId)) {
         incomingCallDialogIdsRef.current.add(callId)
         const callType = String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'
@@ -2323,6 +2565,10 @@ export default function AppRoot() {
       if (!callId) return
       incomingCallNotificationIdsRef.current.delete(callId)
       incomingCallDialogIdsRef.current.delete(callId)
+<<<<<<< HEAD
+      dismissInAppBanner(getInAppBannerId('call', callId))
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
 
     const ringingCallHandler = (payload) => {
@@ -2349,8 +2595,12 @@ export default function AppRoot() {
       const callId = normalizeId(call?.callId)
       if (!callId) return
 
+<<<<<<< HEAD
+      clearIncomingCallHandler(payload)
+=======
       incomingCallNotificationIdsRef.current.delete(callId)
       incomingCallDialogIdsRef.current.delete(callId)
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
       const currentCallId = normalizeId(mobileCallStateRef.current?.call?.callId)
       const phase = mobileCallStateRef.current?.phase
@@ -2486,9 +2736,17 @@ export default function AppRoot() {
     loadConversations,
     openConversation,
     acceptMobileCall,
+<<<<<<< HEAD
+    dismissInAppBanner,
     joinMobileCall,
     resetMobileCall,
     showAppDialog,
+    upsertInAppBanner,
+=======
+    joinMobileCall,
+    resetMobileCall,
+    showAppDialog,
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
     upsertConversation,
   ])
 
@@ -2787,6 +3045,10 @@ export default function AppRoot() {
                   onOpenFriends={() => navigation.navigate('FriendHub')}
                   onOpenUrban={() => navigation.navigate('UrbanIncidents')}
                   onOpenProfile={() => navigation.navigate('Profile')}
+<<<<<<< HEAD
+                  onOpenProfileLocation={() => openProfileLocationPicker(navigation)}
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                   friendRequestCount={0}
                 />
               )}
@@ -2879,6 +3141,10 @@ export default function AppRoot() {
                   user={user}
                   loading={authLoading}
                   error={authError}
+<<<<<<< HEAD
+                  openLocationPickerToken={profileLocationPromptToken}
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
                   onBack={() => navigation.goBack()}
                   onUpdateAvatar={updateAvatar}
                   onUpdateProfile={updateProfile}
@@ -2951,6 +3217,36 @@ export default function AppRoot() {
           </>
         )}
       </Stack.Navigator>
+<<<<<<< HEAD
+      <MobileInAppBannerHost
+        banners={inAppBanners}
+        onDismiss={dismissInAppBanner}
+        onOpenBanner={(banner) => {
+          if (banner?.type === 'call') {
+            openConversationFromBanner(banner?.data?.conversationId).catch(() => {})
+            return
+          }
+
+          openConversationFromBanner(banner?.data?.conversationId)
+            .then((opened) => {
+              if (opened) {
+                dismissInAppBanner(banner?.id)
+              }
+            })
+            .catch(() => {})
+        }}
+        onAcceptCall={(banner) => {
+          openConversationFromBanner(banner?.data?.conversationId).catch(() => {})
+          acceptMobileCall(banner?.data?.call || null).catch(() => {})
+          dismissInAppBanner(banner?.id)
+        }}
+        onDeclineCall={(banner) => {
+          declineMobileCall(banner?.data?.call || null).catch(() => {})
+          dismissInAppBanner(banner?.id)
+        }}
+      />
+=======
+>>>>>>> db60783c03601ac02358744473479e212cf7b40c
       <MobileCallOverlay
         visible={mobileCallState.visible}
         call={mobileCallState.call}

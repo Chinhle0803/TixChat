@@ -43,8 +43,8 @@ const CHAT_THEME_PRESETS = {
     chatBackground: '#eef0f4',
     ownBubbleBackground: '#1061e8',
     ownBubbleText: '#ffffff',
-    otherBubbleBackground: '#dee2e7',
-    otherBubbleText: '#0f172a',
+    otherBubbleBackground: '#ffffff',
+    otherBubbleText: '#1f2937',
   },
   snow: {
     chatBackground: '#f8fafc',
@@ -1070,8 +1070,8 @@ export default function ChatScreen({
                 >
                 {repliedMessage ? (
                   <View style={[styles.replySnippet, isMe ? styles.replySnippetMe : styles.replySnippetOther]}>
-                    <Text style={styles.replySnippetLabel}>Trả lời</Text>
-                    <Text numberOfLines={1} style={styles.replySnippetText}>
+                    <Text style={[styles.replySnippetLabel, isMe ? styles.replySnippetLabelMe : styles.replySnippetLabelOther]}>Trả lời</Text>
+                    <Text numberOfLines={1} style={[styles.replySnippetText, isMe ? styles.replySnippetTextMe : styles.replySnippetTextOther]}>
                       {String(repliedMessage?.content || '[Tệp đính kèm]')}
                     </Text>
                   </View>
@@ -2263,7 +2263,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   bubbleMe: { backgroundColor: '#1061e8', borderBottomRightRadius: 4 },
-  bubbleOther: { backgroundColor: '#dee2e7', borderBottomLeftRadius: 4 },
+  bubbleOther: { 
+    backgroundColor: '#ffffff', 
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    // shadow for iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    // elevation for Android
+    elevation: 1,
+  },
   emojiBubble: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -2331,19 +2343,21 @@ const styles = StyleSheet.create({
     borderLeftColor: 'rgba(255,255,255,0.7)',
   },
   replySnippetOther: {
-    backgroundColor: 'rgba(148,163,184,0.2)',
+    backgroundColor: '#f1f5f9',
     borderLeftColor: '#64748b',
   },
   replySnippetLabel: {
     fontSize: 11,
-    color: '#e2e8f0',
     fontWeight: '700',
     marginBottom: 2,
   },
+  replySnippetLabelMe: { color: 'rgba(255,255,255,0.85)' },
+  replySnippetLabelOther: { color: '#64748b' },
   replySnippetText: {
     fontSize: 12,
-    color: '#f8fafc',
   },
+  replySnippetTextMe: { color: '#f8fafc' },
+  replySnippetTextOther: { color: '#334155' },
   timeText: { marginTop: 4, fontSize: 11 },
   timeTextMe: { color: '#cffafe', textAlign: 'right' },
   timeTextOther: { color: '#64748b', textAlign: 'right' },
@@ -2354,14 +2368,22 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   reactionChip: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    // Shadow for better visibility
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   reactionChipText: {
-    color: '#fff',
-    fontSize: 11,
+    fontSize: 12,
+    color: '#1e293b',
     fontWeight: '700',
   },
   bottomDock: {

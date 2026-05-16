@@ -1,11 +1,17 @@
 param(
-    [string]$EnvFile = ".env",
-    [string]$Repo = "Chinhle0803/TixChat-Backend"
+    [string]$EnvFile = ".env.deploy.source",
+    [string]$Repo = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $variableKeys = @(
+    "DEPLOY_PATH",
+    "NODE_ENV",
+    "PORT",
+    "CLIENT_URL",
+    "FRONTEND_URL",
+    "FRONTEND_URLS",
     "AWS_REGION",
     "DYNAMODB_USERS_TABLE",
     "DYNAMODB_CONVERSATIONS_TABLE",
@@ -13,7 +19,9 @@ $variableKeys = @(
     "DYNAMODB_PARTICIPANTS_TABLE",
     "DYNAMODB_CALL_SESSIONS_TABLE",
     "DYNAMODB_NOTIFICATION_TOKENS_TABLE",
-    "DYNAMODB_CALL_CONVERSATION_STATUS_INDEX",
+    "DYNAMODB_POSTS_TABLE",
+    "DYNAMODB_COMMENTS_TABLE",
+    "DYNAMODB_URBAN_STATS_TABLE",
     "JWT_EXPIRE",
     "JWT_REFRESH_EXPIRE",
     "AWS_SES_REGION",
@@ -21,12 +29,41 @@ $variableKeys = @(
     "S3_BUCKET_NAME",
     "S3_AVATAR_FOLDER",
     "S3_MESSAGE_FOLDER",
+    "S3_POST_IMAGES_BUCKET",
+    "S3_POST_IMAGES_FOLDER",
+    "AWS_LOCATION_REGION",
+    "AWS_LOCATION_STYLE",
+    "AWS_LOCATION_COLOR_SCHEME",
+    "AWS_LOCATION_VARIANT",
+    "AWS_LOCATION_ALLOWED_IPS",
     "AWS_CHIME_REGION",
     "CHIME_MEETING_REGION",
     "CALL_RING_TIMEOUT_SECONDS",
+    "AI_PROVIDER",
+    "GEMINI_MODEL",
+    "AWS_BEDROCK_REGION",
+    "AWS_BEDROCK_MODEL_ID",
+    "AWS_GEO_PLACES_REGION",
+    "AWS_GEO_ROUTES_REGION",
+    "AWS_GEO_ROUTE_MODE",
+    "AI_MAX_CONTEXT_POSTS",
+    "AI_DEFAULT_RADIUS_KM",
+    "AI_TIMEOUT_MS",
+    "ASSISTANT_ROUTE_SAMPLE_METERS",
+    "ASSISTANT_ROUTE_INCIDENT_RADIUS_METERS",
+    "ASSISTANT_MEMORY_TTL_SECONDS",
+    "ASSISTANT_MAX_TOOL_STEPS",
+    "EMBEDDING_PROVIDER",
+    "EMBEDDING_MODEL",
+    "OPENSEARCH_VECTOR_ENDPOINT",
     "REDIS_ENABLED",
-    "NODE_ENV",
-    "PORT"
+    "REDIS_URL",
+    "REDIS_URL_DOCKER",
+    "REDIS_KEY_PREFIX",
+    "REDIS_CONNECT_TIMEOUT_MS",
+    "REDIS_DEFAULT_TTL_SECONDS",
+    "REDIS_POST_TTL_SECONDS",
+    "REDIS_USER_TTL_SECONDS"
 )
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
@@ -38,6 +75,10 @@ if (-not (Test-Path $EnvFile)) {
 }
 
 gh auth status | Out-Null
+
+if ([string]::IsNullOrWhiteSpace($Repo)) {
+    throw "Bạn phải truyền -Repo theo dạng owner/repo, ví dụ: thongle/tixchat-backend-deploy"
+}
 
 $secretCount = 0
 $variableCount = 0

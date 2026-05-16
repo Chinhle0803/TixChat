@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import useAuthStore from '../store/authStore'
 import apiClient, { API_URL, userService } from '../services/api'
 import { useDialog } from '../context/DialogContext'
+import {
+  extractLocationFromReverseGeocode as extractFormattedLocationFromReverseGeocode,
+  formatLocationLabel,
+  normalizeProfileLocation as normalizeFormattedProfileLocation,
+} from '../utils/addressFormat.js'
 import '../styles/ProfilePage.css'
 
 const DEFAULT_PROFILE_LOCATION = { lat: 10.776889, lng: 106.700806 }
@@ -79,7 +84,7 @@ const reverseGeocodeLocation = async ({ lat, lng }) => {
   if (!response.ok) throw new Error('Không thể lấy dữ liệu khu vực từ bản đồ')
 
   const data = await response.json()
-  const location = extractLocationFromReverseGeocode(data, { lat, lng })
+  const location = extractFormattedLocationFromReverseGeocode(data, { lat, lng })
   return {
     ...location,
     address: location.address || `Vị trí đã chọn (${formatCoordinates(location)})`,
@@ -92,7 +97,7 @@ const ProfileLocationPicker = ({ value, onChange, onClose }) => {
   const markerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
-  const [draftLocation, setDraftLocation] = useState(() => normalizeProfileLocation(value))
+  const [draftLocation, setDraftLocation] = useState(() => normalizeFormattedProfileLocation(value))
   const [resolving, setResolving] = useState(false)
 
   const placeMarker = useCallback((map, lng, lat) => {
@@ -261,7 +266,7 @@ const ProfileLocationPicker = ({ value, onChange, onClose }) => {
             Dùng vị trí hiện tại
           </button>
           <div className="profile-location-preview">
-            <strong>{getLocationLabel(draftLocation)}</strong>
+            <strong>{formatLocationLabel(draftLocation)}</strong>
             <span>{resolving ? 'Đang nhận diện khu vực...' : (formatCoordinates(draftLocation) || 'Chưa có tọa độ')}</span>
           </div>
         </div>
@@ -275,7 +280,7 @@ const ProfileLocationPicker = ({ value, onChange, onClose }) => {
             className="btn btn-primary"
             disabled={!canConfirm || resolving}
             onClick={() => {
-              onChange(normalizeProfileLocation(draftLocation))
+              onChange(normalizeFormattedProfileLocation(draftLocation))
               onClose()
             }}
           >
@@ -289,13 +294,14 @@ const ProfileLocationPicker = ({ value, onChange, onClose }) => {
 
 const ProfilePage = () => {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { notify, confirm } = useDialog()
   const { user, logout, updateUser } = useAuthStore()
 
   // Form states
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
-  const [profileLocation, setProfileLocation] = useState(() => normalizeProfileLocation())
+  const [profileLocation, setProfileLocation] = useState(() => normalizeFormattedProfileLocation())
   const [avatar, setAvatar] = useState('')
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState('')
@@ -324,11 +330,26 @@ const ProfilePage = () => {
     if (user) {
       setDisplayName(user.displayName || user.fullName || user.username || '')
       setBio(user.bio || '')
-      setProfileLocation(normalizeProfileLocation(user.location, user))
+      setProfileLocation(normalizeFormattedProfileLocation(user.location, user))
       setAvatar(user.avatar || '')
       setAvatarPreview(user.avatar || '')
     }
   }, [user])
+
+  useEffect(() => {
+    if (searchParams.get('openLocation') === '1') {
+      setShowLocationPicker(true)
+    }
+  }, [searchParams])
+
+  const closeLocationPicker = useCallback(() => {
+    setShowLocationPicker(false)
+    if (searchParams.get('openLocation') === '1') {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('openLocation')
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const showMessage = (type, text) => {
     setMessage({ type, text })
@@ -439,7 +460,7 @@ const ProfilePage = () => {
         displayName.trim()
       const nextBio = responseUser.bio ?? bio.trim()
       const nextAvatar = responseUser.avatar || user?.avatar || avatar
-      const nextProfileLocation = normalizeProfileLocation(responseUser.location, {
+      const nextProfileLocation = normalizeFormattedProfileLocation(responseUser.location, {
         province: responseUser.province ?? profileLocation.province,
         district: responseUser.district ?? profileLocation.district,
       })
@@ -711,8 +732,8 @@ const ProfilePage = () => {
                 disabled={loading}
               >
                 <span>
-                  <strong>{getLocationLabel(profileLocation)}</strong>
-                  <small>{formatCoordinates(profileLocation) || 'Chọn trên bản đồ để tự nhận diện tỉnh/quận'}</small>
+                  <strong>{formatLocationLabel(profileLocation)}</strong>
+                  <small>{formatCoordinates(profileLocation) || 'Chọn trên bản đồ để tự nhận diện và chuẩn hóa địa chỉ'}</small>
                 </span>
                 <em>Chọn bản đồ</em>
               </button>
@@ -845,7 +866,7 @@ const ProfilePage = () => {
         <ProfileLocationPicker
           value={profileLocation}
           onChange={setProfileLocation}
-          onClose={() => setShowLocationPicker(false)}
+          onClose={closeLocationPicker}
         />
       ) : null}
     </div>

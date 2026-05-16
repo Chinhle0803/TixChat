@@ -18,6 +18,7 @@ import callRoutes from './routes/call.js'
 import notificationRoutes from './routes/notification.js'
 import postRoutes from './routes/post.js'
 import mapRoutes from './routes/map.js'
+import assistantRoutes from './routes/assistant.js'
 
 const app = express()
 
@@ -73,6 +74,7 @@ app.use('/api/calls', callRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/posts', postRoutes)
 app.use('/api/maps', mapRoutes)
+app.use('/api/assistant', assistantRoutes)
 
 // Socket.IO
 initializeSocketHandlers(io)

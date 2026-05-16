@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import React, { useCallback, useEffect, useState } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { useThemeStore } from './store/themeStore'
 import AuthContainer from './pages/AuthContainer'
@@ -10,6 +10,12 @@ import AssistantPage from './pages/AssistantPage'
 import CallsPage from './pages/CallsPage'
 import MainToolbar from './components/MainToolbar'
 import { DialogProvider } from './context/DialogContext'
+import { useDialog } from './context/DialogContext'
+import { RealtimeProvider } from './context/RealtimeContext'
+import InAppBannerHost from './components/InAppBannerHost'
+import useCall from './hooks/useCall'
+import useGlobalRealtime from './hooks/useGlobalRealtime'
+import { normalizeId } from './utils/normalize'
 import './styles/App.css'
 
 const TOOLBAR_COLLAPSED_STORAGE_KEY = 'tixchat.mainToolbarCollapsed.v1'
@@ -22,8 +28,19 @@ const readToolbarCollapsed = () => {
   }
 }
 
-const AuthenticatedLayout = ({ children }) => {
+const AuthenticatedLayout = () => {
   const [toolbarCollapsed, setToolbarCollapsed] = useState(readToolbarCollapsed)
+  const user = useAuthStore((state) => state.user)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { notify } = useDialog()
+  const currentUserId = normalizeId(user?._id || user?.userId)
+  const callControls = useCall({ currentUserId })
+
+  useGlobalRealtime({
+    currentPath: location.pathname,
+    callControls,
+  })
 
   useEffect(() => {
     try {
@@ -33,16 +50,74 @@ const AuthenticatedLayout = ({ children }) => {
     }
   }, [toolbarCollapsed])
 
+  useEffect(() => {
+    const handleOpenConversation = (event) => {
+      const conversationId = normalizeId(event?.detail?.conversationId)
+      if (!conversationId) return
+      navigate(`/chat?conversationId=${encodeURIComponent(conversationId)}`)
+    }
+
+    window.addEventListener('tixchat:open-conversation', handleOpenConversation)
+    return () => {
+      window.removeEventListener('tixchat:open-conversation', handleOpenConversation)
+    }
+  }, [navigate])
+
+  const openConversationScreen = useCallback((conversationId = '') => {
+    const normalizedConversationId = normalizeId(conversationId)
+    if (!normalizedConversationId) {
+      navigate('/chat')
+      return
+    }
+
+    navigate(`/chat?conversationId=${encodeURIComponent(normalizedConversationId)}`)
+  }, [navigate])
+
+  const handleAcceptIncomingCall = useCallback(async (_callId, conversationId) => {
+    try {
+      await callControls?.acceptCall?.()
+      openConversationScreen(conversationId || callControls?.incomingCall?.conversationId)
+    } catch (error) {
+      await notify({
+        title: 'Không thể nhận cuộc gọi',
+        message: error?.response?.data?.error || error?.message || 'Vui lòng thử lại.',
+        confirmText: 'Đã hiểu',
+        variant: 'error',
+      })
+    }
+  }, [callControls, notify, openConversationScreen])
+
+  const handleDeclineIncomingCall = useCallback(async () => {
+    try {
+      await callControls?.declineCall?.()
+    } catch (error) {
+      await notify({
+        title: 'Không thể từ chối cuộc gọi',
+        message: error?.response?.data?.error || error?.message || 'Vui lòng thử lại.',
+        confirmText: 'Đã hiểu',
+        variant: 'error',
+      })
+    }
+  }, [callControls, notify])
+
   return (
-    <div className={`authenticated-shell ${toolbarCollapsed ? 'toolbar-collapsed' : ''}`}>
-      <MainToolbar
-        collapsed={toolbarCollapsed}
-        onToggleCollapsed={() => setToolbarCollapsed((current) => !current)}
-      />
-      <section className="authenticated-content">
-        {children}
-      </section>
-    </div>
+    <RealtimeProvider value={{ callControls }}>
+      <div className={`authenticated-shell ${toolbarCollapsed ? 'toolbar-collapsed' : ''}`}>
+        <MainToolbar
+          collapsed={toolbarCollapsed}
+          onToggleCollapsed={() => setToolbarCollapsed((current) => !current)}
+        />
+        <section className="authenticated-content">
+          <InAppBannerHost
+            onOpenConversation={openConversationScreen}
+            onOpenCallScreen={openConversationScreen}
+            onAcceptCall={handleAcceptIncomingCall}
+            onDeclineCall={handleDeclineIncomingCall}
+          />
+          <Outlet />
+        </section>
+      </div>
+    </RealtimeProvider>
   )
 }
 
@@ -64,10 +139,6 @@ function App() {
     )
   }
 
-  const protectedPage = (page) => (
-    isAuthenticated ? <AuthenticatedLayout>{page}</AuthenticatedLayout> : <Navigate to="/auth" />
-  )
-
   return (
     <DialogProvider>
       <Router
@@ -81,41 +152,47 @@ function App() {
             path="/auth/*" 
             element={!isAuthenticated ? <AuthContainer /> : <Navigate to="/chat" />} 
           />
-          <Route 
-            path="/chat" 
-            element={protectedPage(<ChatPage />)} 
-          />
-          <Route
-            path="/calls"
-            element={protectedPage(<CallsPage />)}
-          />
-          <Route
-            path="/assistant"
-            element={protectedPage(<AssistantPage />)}
-          />
-          <Route 
-            path="/profile" 
-            element={protectedPage(<ProfilePage />)} 
-          />
-          <Route
-            path="/urban"
-            element={protectedPage(<UrbanFeedPage />)}
-          />
-          <Route
-            path="/urban/posts/:postId"
-            element={protectedPage(<UrbanPostDetailPage />)}
-          />
-          <Route
-            path="/urban/map"
-            element={protectedPage(<UrbanMapPage />)}
-          />
-          <Route
-            path="/urban/assistant"
-            element={protectedPage(<UrbanAssistantPage />)}
-          />
+          <Route element={isAuthenticated ? <AuthenticatedLayout /> : <Navigate to="/auth" />}>
+            <Route 
+              path="/chat" 
+              element={<ChatPage />} 
+            />
+            <Route
+              path="/calls"
+              element={<CallsPage />}
+            />
+            <Route
+              path="/assistant"
+              element={<AssistantPage />}
+            />
+            <Route 
+              path="/profile" 
+              element={<ProfilePage />} 
+            />
+            <Route
+              path="/urban"
+              element={<UrbanFeedPage />}
+            />
+            <Route
+              path="/urban/posts/:postId"
+              element={<UrbanPostDetailPage />}
+            />
+            <Route
+              path="/urban/map"
+              element={<UrbanMapPage />}
+            />
+            <Route
+              path="/urban/assistant"
+              element={<UrbanAssistantPage />}
+            />
+          </Route>
           <Route 
             path="/" 
             element={isAuthenticated ? <Navigate to="/chat" /> : <Navigate to="/auth" />} 
+          />
+          <Route
+            path="*"
+            element={isAuthenticated ? <Navigate to="/chat" /> : <Navigate to="/auth" />}
           />
         </Routes>
       </Router>

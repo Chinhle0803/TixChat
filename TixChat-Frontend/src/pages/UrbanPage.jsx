@@ -37,6 +37,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import apiClient, { API_URL, postService, userService } from '../services/api'
 import { getSocket, initSocket } from '../services/socket'
 import useAuthStore from '../store/authStore'
+import { formatLocationLabel, getLocationInputPlaceholder } from '../utils/addressFormat.js'
+import AssistantPage from './AssistantPage'
 import '../styles/UrbanPage.css'
 
 const categories = [
@@ -294,9 +296,9 @@ const createPostPopupNode = (post) => {
   content.textContent = post.content || 'Không có mô tả'
   wrap.appendChild(content)
 
-  if (post.location?.address) {
+  if (formatLocationLabel(post.location)) {
     const address = document.createElement('small')
-    address.textContent = post.location.address
+    address.textContent = formatLocationLabel(post.location)
     wrap.appendChild(address)
   }
 
@@ -520,15 +522,15 @@ const PostCard = ({
             <span>{formatPostTime(post.createdAt)}</span>
             <span>•</span>
             <span>{categoryLabel(post.category)}</span>
-            {post.location?.address ? (
+            {formatLocationLabel(post.location) ? (
               <>
                 <span>•</span>
                 {coordinates ? (
                   <Link className="urban-map-link" to={getPostMapHref(post)}>
-                    <FiMapPin /> {post.location.address}
+                    <FiMapPin /> {formatLocationLabel(post.location)}
                   </Link>
                 ) : (
-                  <span>{post.location.address}</span>
+                  <span>{formatLocationLabel(post.location)}</span>
                 )}
               </>
             ) : null}
@@ -542,7 +544,7 @@ const PostCard = ({
       {coordinates ? (
         <Link className="urban-post-location" to={getPostMapHref(post)}>
           <FiMapPin />
-          <span>{post.location?.address || `${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`}</span>
+          <span>{formatLocationLabel(post.location) || `${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`}</span>
           <strong>Xem trên bản đồ</strong>
         </Link>
       ) : null}
@@ -688,7 +690,7 @@ export const UrbanFeedPage = () => {
       ...current,
       lat: nextLat,
       lng: nextLng,
-      address: current.address || 'Vị trí đã chọn trên bản đồ',
+      address: current.address || '',
     }))
   }, [])
 
@@ -1033,7 +1035,7 @@ export const UrbanFeedPage = () => {
                 <select value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
                   {severities.map(([key, label]) => <option key={key} value={key}>Mức độ: {label}</option>)}
                 </select>
-                <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Địa chỉ" />
+                <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder={getLocationInputPlaceholder()} />
                 <input value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} placeholder="Vĩ độ" inputMode="decimal" />
                 <input value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} placeholder="Kinh độ" inputMode="decimal" />
               </div>
@@ -1041,7 +1043,7 @@ export const UrbanFeedPage = () => {
                 <div>
                   <strong>Vị trí báo cáo</strong>
                   <span>
-                    {form.lat && form.lng ? `Đã chọn: ${form.lat}, ${form.lng}` : 'Chọn nhanh bằng bản đồ hoặc nhập thủ công.'}
+                    {form.lat && form.lng ? `Đã chọn: ${form.lat}, ${form.lng}` : 'Chọn nhanh bằng bản đồ hoặc nhập địa chỉ theo chuẩn.'}
                   </span>
                 </div>
                 <button type="button" onClick={() => setShowLocationPicker((current) => !current)}>
@@ -1501,17 +1503,23 @@ export const UrbanPostDetailPage = () => {
           )}
           <p>{post.content}</p>
           {coordinates ? (
-            <Link className="urban-detail-map-link" to={getPostMapHref(post)}>
+            <Link className={`urban-detail-map-link status-${post.status}`} to={getPostMapHref(post)}>
               <FiMapPin />
-              <span>{post.location?.address || `${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`}</span>
+              <span>{formatLocationLabel(post.location) || `${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`}</span>
               <strong>Xem vị trí trên bản đồ</strong>
             </Link>
-          ) : post.location?.address ? (
-            <p className="urban-location"><FiMapPin /> {post.location.address}</p>
+          ) : formatLocationLabel(post.location) ? (
+            <p className="urban-location"><FiMapPin /> {formatLocationLabel(post.location)}</p>
           ) : null}
           <div className="urban-status-actions">
             {statuses.map(([key, label]) => (
-              <button key={key} type="button" onClick={() => updateStatus(key)} disabled={post.status === key}>
+              <button
+                key={key}
+                type="button"
+                className={post.status === key ? `active status-${key}` : ''}
+                onClick={() => updateStatus(key)}
+                disabled={post.status === key}
+              >
                 <FiCheckCircle /> {label}
               </button>
             ))}
@@ -1884,11 +1892,4 @@ export const UrbanMapPage = () => {
   )
 }
 
-export const UrbanAssistantPage = () => (
-  <UrbanShell>
-    <section className="urban-assistant-placeholder">
-      <h1>Trợ lý Đô thị</h1>
-      <p>Khung điều hướng đã sẵn sàng cho Giai đoạn 3. Dữ liệu nguồn sẽ lấy từ các báo cáo sự cố đã tạo ở Giai đoạn 2.</p>
-    </section>
-  </UrbanShell>
-)
+export const UrbanAssistantPage = () => <AssistantPage />

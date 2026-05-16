@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import useChat from '../hooks/useChat'
-import useCall from '../hooks/useCall'
-import useSocket from '../hooks/useSocket'
 import useChatStore from '../store/chatStore'
 import ConversationList from '../components/ConversationList'
 import ChatWindow from '../components/ChatWindow'
@@ -13,6 +12,7 @@ import '../styles/ChatPage.css'
 import { FiMenu, FiPhone, FiPhoneOff, FiVideo, FiVideoOff, FiMic, FiMicOff } from 'react-icons/fi'
 import { conversationService, messageService, userService } from '../services/api'
 import { useDialog } from '../context/DialogContext'
+import { useRealtimeContext } from '../context/RealtimeContext'
 
 const normalizeId = (value) => {
   if (!value) return ''
@@ -176,7 +176,9 @@ const readConversationPreferences = () => {
 }
 
 const ChatPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { notify, confirm } = useDialog()
+  const { callControls: realtimeCallControls } = useRealtimeContext()
   const { user } = useAuthStore()
   const {
     conversations,
@@ -212,6 +214,12 @@ const ChatPage = () => {
   const [conversationPreferences, setConversationPreferences] = useState(() => readConversationPreferences())
   const displayName = user?.fullName || user?.username || 'User'
   const displayInitial = displayName.charAt(0).toUpperCase()
+  const pendingRequestedConversationIdRef = useRef('')
+  const openConversationRef = useRef(openConversation)
+
+  useEffect(() => {
+    openConversationRef.current = openConversation
+  }, [openConversation])
 
   const visibleConversations = useMemo(() => {
     const list = Array.isArray(conversations) ? [...conversations] : []
@@ -241,7 +249,7 @@ const ChatPage = () => {
 
   const currentConversationId = normalizeId(currentConversation?._id || currentConversation?.conversationId)
   const currentConversationPreference = conversationPreferences?.[currentConversationId] || createDefaultPreference()
-  const callControls = useCall({ currentUserId: user?._id || user?.userId })
+  const callControls = realtimeCallControls || {}
   const incomingCall = callControls?.incomingCall
   const activeCall = callControls?.currentCall
   const activeCallConversationId = normalizeId(activeCall?.conversationId)
@@ -271,9 +279,6 @@ const ChatPage = () => {
 
     return matchedConversation?.name || 'Người dùng'
   }, [conversations, user])
-
-  // Initialize socket
-  useSocket()
 
   useEffect(() => {
     getConversations()
@@ -308,24 +313,43 @@ const ChatPage = () => {
     )
   }, [conversationPreferences])
 
-  useEffect(() => {
-    const handleOpenConversationFromNotification = async (event) => {
-      const conversationId = normalizeId(event?.detail?.conversationId)
-      if (!conversationId) return
+  const requestedConversationId = normalizeId(searchParams.get('conversationId'))
 
+  useEffect(() => {
+    if (!requestedConversationId) {
+      pendingRequestedConversationIdRef.current = ''
+      return
+    }
+
+    if (pendingRequestedConversationIdRef.current === requestedConversationId) {
+      return
+    }
+
+    pendingRequestedConversationIdRef.current = requestedConversationId
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('conversationId')
+    setSearchParams(nextParams, { replace: true })
+
+    let isCancelled = false
+
+    const openRequestedConversation = async () => {
       try {
-        await openConversation(conversationId)
+        await openConversationRef.current?.(requestedConversationId)
+        if (isCancelled) return
+
         setShowSidebar(false)
       } catch (error) {
-        console.warn('Cannot open notification conversation:', error?.message || error)
+        console.warn('Cannot open requested conversation:', error?.message || error)
       }
     }
 
-    window.addEventListener('tixchat:open-conversation', handleOpenConversationFromNotification)
+    openRequestedConversation()
+
     return () => {
-      window.removeEventListener('tixchat:open-conversation', handleOpenConversationFromNotification)
+      isCancelled = true
     }
-  }, [openConversation])
+  }, [requestedConversationId, setSearchParams])
 
   const handleSelectConversation = async (conversation) => {
     await openConversation(conversation._id || conversation.conversationId)

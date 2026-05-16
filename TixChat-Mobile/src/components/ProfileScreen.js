@@ -14,6 +14,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Button, Card, IconButton, Input, MobileBottomTabBar, Screen, TopBar } from './ui'
 import { useAppTheme } from '../theme'
+import {
+  extractLocationFromReverseGeocode as extractFormattedLocationFromReverseGeocode,
+  formatLocationLabel,
+  normalizeProfileLocation as normalizeFormattedProfileLocation,
+} from '../utils/addressFormat'
 
 const NativeWebView = Platform.OS === 'web' ? null : require('react-native-webview').WebView
 const DEFAULT_PROFILE_LOCATION = { lat: 10.776889, lng: 106.700806 }
@@ -28,67 +33,6 @@ const formatCoordinates = (location = {}) => {
   const lng = toCoordinateNumber(location.lng)
   if (lat === null || lng === null) return ''
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-}
-
-const getLocationLabel = (location = {}) => {
-  const district = String(location?.district || '').trim()
-  const province = String(location?.province || '').trim()
-  const address = String(location?.address || '').trim()
-  return [district, province].filter(Boolean).join(', ') || address || 'Chưa chọn khu vực'
-}
-
-const normalizeProfileLocation = (location = {}, fallbackUser = {}) => {
-  const province = String(location?.province || fallbackUser?.province || '').trim()
-  const district = String(location?.district || fallbackUser?.district || '').trim()
-  const address = String(location?.address || [district, province].filter(Boolean).join(', ')).trim()
-  return {
-    address,
-    lat: location?.lat ?? '',
-    lng: location?.lng ?? '',
-    province,
-    district,
-  }
-}
-
-const extractLocationFromReverseGeocode = (data = {}, coordinates = {}) => {
-  const address = data?.address || {}
-  const province = String(
-    address.city ||
-    address.state ||
-    address.province ||
-    address.region ||
-    ''
-  ).trim()
-  const district = String(
-    address.city_district ||
-    address.district ||
-    address.county ||
-    address.suburb ||
-    address.town ||
-    ''
-  ).trim()
-
-  return {
-    address: String(data?.display_name || '').trim(),
-    lat: coordinates.lat,
-    lng: coordinates.lng,
-    province,
-    district,
-  }
-}
-
-const reverseGeocodeLocation = async ({ lat, lng }) => {
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=vi`
-  )
-  if (!response.ok) throw new Error('Không thể lấy dữ liệu khu vực từ bản đồ')
-
-  const data = await response.json()
-  const location = extractLocationFromReverseGeocode(data, { lat, lng })
-  return {
-    ...location,
-    address: location.address || `Vị trí đã chọn (${formatCoordinates(location)})`,
-  }
 }
 
 const createProfileLocationMapHtml = (location = {}) => {
@@ -274,6 +218,7 @@ export default function ProfileScreen({
   user,
   loading,
   error,
+  openLocationPickerToken = 0,
   onBack,
   onUpdateProfile,
   onChangePassword,
@@ -295,6 +240,12 @@ export default function ProfileScreen({
   const [bio, setBio] = useState('')
   const [province, setProvince] = useState('')
   const [district, setDistrict] = useState('')
+  const [profileLocation, setProfileLocation] = useState(() => normalizeFormattedProfileLocation())
+  const [draftProfileLocation, setDraftProfileLocation] = useState(() => normalizeFormattedProfileLocation())
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
+  const [resolvingLocation, setResolvingLocation] = useState(false)
+  const [locationPickerError, setLocationPickerError] = useState('')
+
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -314,7 +265,17 @@ export default function ProfileScreen({
     setBio(user?.bio || '')
     setProvince(user?.province || '')
     setDistrict(user?.district || '')
+    const nextLocation = normalizeFormattedProfileLocation(user?.location, user)
+    setProfileLocation(nextLocation)
+    setDraftProfileLocation(nextLocation)
   }, [user])
+
+  useEffect(() => {
+    if (openLocationPickerToken) {
+      setDraftProfileLocation(profileLocation)
+      setShowLocationPicker(true)
+    }
+  }, [openLocationPickerToken, profileLocation])
 
   const submitProfile = async () => {
     if (!displayName.trim()) {
@@ -326,8 +287,9 @@ export default function ProfileScreen({
     const result = await onUpdateProfile({
       displayName: displayName.trim(),
       bio: bio.trim(),
-      province: province.trim(),
-      district: district.trim(),
+      province: profileLocation.province || province.trim(),
+      district: profileLocation.district || district.trim(),
+      location: profileLocation,
     })
 
     if (result?.ok) {
@@ -370,6 +332,37 @@ export default function ProfileScreen({
     } else if (result?.error) {
       setLocalError(result.error)
     }
+  }
+
+  const handleProfileLocationPick = async ({ lat, lng }) => {
+    setResolvingLocation(true)
+    setLocationPickerError('')
+    try {
+      const resolvedLocation = await reverseGeocodeLocation({ lat, lng })
+      setDraftProfileLocation(normalizeFormattedProfileLocation(resolvedLocation))
+    } catch (err) {
+      setDraftProfileLocation((current) => normalizeFormattedProfileLocation({
+        ...current,
+        lat,
+        lng,
+        address: `Vị trí đã chọn (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+      }))
+      setLocationPickerError(err?.message || 'Không thể nhận diện khu vực từ vị trí đã chọn')
+    } finally {
+      setResolvingLocation(false)
+    }
+  }
+
+  const confirmProfileLocation = () => {
+    const nextLocation = normalizeFormattedProfileLocation(draftProfileLocation, {
+      province,
+      district,
+    })
+    setProfileLocation(nextLocation)
+    setProvince(nextLocation.province || '')
+    setDistrict(nextLocation.district || '')
+    setShowLocationPicker(false)
+    setLocationPickerError('')
   }
 
   return (
@@ -451,6 +444,23 @@ export default function ProfileScreen({
             onChangeText={setDistrict}
             placeholder="Ví dụ: Quận 1"
           />
+
+          <Text style={styles.fieldLabel}>KHU VỰC HIỆN TẠI</Text>
+          <Pressable
+            style={styles.locationPickerButton}
+            onPress={() => {
+              setDraftProfileLocation(profileLocation)
+              setShowLocationPicker(true)
+            }}
+          >
+            <View style={styles.locationPickerTextWrap}>
+              <Text style={styles.locationPickerTitle}>{formatLocationLabel(profileLocation)}</Text>
+              <Text style={styles.locationPickerSubtitle}>
+                {formatCoordinates(profileLocation) || 'Chọn trên bản đồ để cập nhật vị trí nhanh'}
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="map-marker-radius-outline" style={styles.locationPickerIcon} />
+          </Pressable>
         </Card>
 
         <Button style={styles.primaryButton} loading={loading} onPress={submitProfile} disabled={loading}>
@@ -515,6 +525,38 @@ export default function ProfileScreen({
               </Pressable>
               <Pressable style={[styles.modalSaveBtn, loading && styles.buttonDisabled]} onPress={submitPassword} disabled={loading}>
                 {loading ? <ActivityIndicator color={c.primaryForeground} size="small" /> : <Text style={styles.modalSaveText}>Lưu</Text>}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showLocationPicker} transparent animationType="fade" onRequestClose={() => setShowLocationPicker(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowLocationPicker(false)}>
+          <Pressable style={styles.locationModalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Cập nhật vị trí nhanh</Text>
+            <Text style={styles.locationHelpText}>Chọn trên bản đồ hoặc dùng vị trí hiện tại để assistant hỗ trợ các câu hỏi gần bạn chính xác hơn.</Text>
+
+            <View style={styles.locationMapWrap}>
+              <ProfileLocationMap
+                value={draftProfileLocation}
+                onPick={handleProfileLocationPick}
+                style={styles.locationMap}
+              />
+            </View>
+
+            <Text style={styles.locationPreviewTitle}>{formatLocationLabel(draftProfileLocation)}</Text>
+            <Text style={styles.locationPreviewSubtitle}>
+              {resolvingLocation ? 'Đang nhận diện khu vực...' : (formatCoordinates(draftProfileLocation) || 'Chưa có tọa độ')}
+            </Text>
+            {!!locationPickerError && <Text style={styles.error}>{locationPickerError}</Text>}
+
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalCancelBtn} onPress={() => setShowLocationPicker(false)}>
+                <Text style={styles.modalCancelText}>Hủy</Text>
+              </Pressable>
+              <Pressable style={[styles.modalSaveBtn, resolvingLocation && styles.buttonDisabled]} onPress={confirmProfileLocation} disabled={resolvingLocation}>
+                {resolvingLocation ? <ActivityIndicator color={c.primaryForeground} size="small" /> : <Text style={styles.modalSaveText}>Xác nhận</Text>}
               </Pressable>
             </View>
           </Pressable>
@@ -646,6 +688,37 @@ const createStyles = (theme) => {
       fontWeight: '700',
       fontSize: 16,
     },
+    locationPickerButton: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 16,
+      backgroundColor: c.surface,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 4,
+    },
+    locationPickerTextWrap: {
+      flex: 1,
+      paddingRight: 12,
+    },
+    locationPickerTitle: {
+      color: c.neutral900,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    locationPickerSubtitle: {
+      marginTop: 4,
+      color: c.neutral500,
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    locationPickerIcon: {
+      color: c.primary,
+      fontSize: 22,
+    },
     buttonDisabled: {
       opacity: 0.7,
     },
@@ -712,6 +785,43 @@ const createStyles = (theme) => {
     modalSaveText: {
       color: c.primaryForeground,
       fontWeight: '700',
+    },
+    locationModalCard: {
+      backgroundColor: c.surfaceElevated,
+      borderRadius: 18,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      maxHeight: '85%',
+    },
+    locationHelpText: {
+      color: c.neutral500,
+      lineHeight: 20,
+      marginBottom: 12,
+    },
+    locationMapWrap: {
+      height: 320,
+      borderRadius: 18,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: '#dbeafe',
+      marginBottom: 12,
+    },
+    locationMap: {
+      flex: 1,
+    },
+    locationPreviewTitle: {
+      color: c.neutral900,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    locationPreviewSubtitle: {
+      marginTop: 4,
+      color: c.neutral500,
+      fontSize: 12,
+      lineHeight: 18,
+      marginBottom: 12,
     },
   })
 }

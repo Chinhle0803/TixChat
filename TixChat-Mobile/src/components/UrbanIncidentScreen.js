@@ -21,6 +21,7 @@ import { Button, Card, Chip, EmptyState, IconButton, Input, MobileBottomTabBar, 
 import UrbanInteractiveMap from './UrbanInteractiveMap'
 import { useAppTheme } from '../theme'
 import { useAuthStore } from '../stores/authStore'
+import { formatLocationLabel, getLocationInputPlaceholder } from '../utils/addressFormat'
 
 const categories = [
   ['electricity', 'Điện'],
@@ -280,7 +281,7 @@ export default function UrbanIncidentScreen({
       const haystack = [
         post?.title,
         post?.content,
-        post?.location?.address,
+        formatLocationLabel(post?.location),
         categoryLabel(post?.category),
         getAuthorLabel(post, profileMap, currentUser),
       ]
@@ -685,8 +686,7 @@ export default function UrbanIncidentScreen({
 
   const renderPostLocation = (post) => {
     const coordinates = getPostCoordinates(post)
-    const address = String(post?.location?.address || '').trim()
-    const label = address || (coordinates ? 'Vị trí đã chọn trên bản đồ' : '')
+    const label = formatLocationLabel(post.location) || (coordinates ? 'Đã chọn vị trí trên bản đồ' : '')
     if (!label) return null
 
     return (
@@ -895,7 +895,7 @@ export default function UrbanIncidentScreen({
             <View style={styles.mapSelectedHead}>
               <View style={styles.mapPreviewTitleWrap}>
                 <Text style={styles.mapSelectedTitle}>{categoryLabel(focusedMapPost.category)}</Text>
-                <Text style={styles.mapSelectedMeta}>{focusedMapPost.location?.address || 'Không có địa chỉ cụ thể'}</Text>
+                <Text style={styles.mapSelectedMeta}>{formatLocationLabel(focusedMapPost.location) || 'Không có địa chỉ cụ thể'}</Text>
               </View>
               <Chip style={[styles.statusChip, styles[`statusChip_${getMarkerTone(focusedMapPost.status)}`]]}>{statusLabel(focusedMapPost.status)}</Chip>
             </View>
@@ -1024,7 +1024,7 @@ export default function UrbanIncidentScreen({
                 </Chip>
               ))}
             </ScrollView>
-            <Input value={form.address} onChangeText={(address) => setForm((current) => ({ ...current, address }))} placeholder="Địa chỉ" />
+            <Input value={form.address} onChangeText={(address) => setForm((current) => ({ ...current, address }))} placeholder={getLocationInputPlaceholder()} />
             <View style={styles.coordinateRow}>
               <Input
                 style={styles.coordinateInput}

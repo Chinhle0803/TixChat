@@ -7,6 +7,7 @@ import config from '../config/index.js'
 import { getIO } from '../utils/ioInstance.js'
 import { normalizePostLocation } from '../utils/urbanRegion.js'
 import redisCache, { stableSerialize } from './RedisCacheService.js'
+import locationResolutionService from './LocationResolutionService.js'
 
 export const POST_CATEGORIES = [
   'electricity',
@@ -87,25 +88,91 @@ const normalizeLocation = (location = {}) => {
   })
 }
 
+const isSameLocation = (a = null, b = null) =>
+  JSON.stringify(a || null) === JSON.stringify(b || null)
+
 class PostService {
+  async normalizePostForRead(post = null) {
+    if (!post || typeof post !== 'object') return post
+
+    const normalizedLocation = normalizeLocation(post.location)
+    const nextLocation = normalizedLocation
+      ? await locationResolutionService.enrichLocation(normalizedLocation)
+      : null
+
+    if (!nextLocation) {
+      return post
+    }
+
+    if (isSameLocation(post.location, nextLocation)) {
+      return {
+        ...post,
+        location: nextLocation,
+      }
+    }
+
+    try {
+      const updated = await postRepository.updateLocation(post.postId, nextLocation)
+      const safeUpdated = updated || { ...post, location: nextLocation }
+
+      await redisCache.setJson(
+        getPostCacheKey(post.postId),
+        safeUpdated,
+        config.redisPostTtlSeconds
+      )
+
+      return safeUpdated
+    } catch {
+      return {
+        ...post,
+        location: nextLocation,
+      }
+    }
+  }
+
+  async normalizePostsForRead(posts = []) {
+    if (!Array.isArray(posts) || posts.length === 0) return []
+
+    const normalizedPosts = await Promise.all(
+      posts.map((post) => this.normalizePostForRead(post))
+    )
+
+    return normalizedPosts
+  }
+
   async listPosts(query = {}) {
-    return redisCache.remember(
+    const result = await redisCache.remember(
       getPostListCacheKey(query),
       config.redisPostTtlSeconds,
       () => postRepository.list(query)
     )
+
+    const normalizedPosts = await this.normalizePostsForRead(result?.posts || [])
+    const normalizedResult = {
+      ...(result || {}),
+      posts: normalizedPosts,
+    }
+
+    await redisCache.setJson(
+      getPostListCacheKey(query),
+      normalizedResult,
+      config.redisPostTtlSeconds
+    )
+
+    return normalizedResult
   }
 
   async createPost(userId, payload = {}) {
     const content = String(payload.content || '').trim()
     if (!content) throw new Error('content is required')
     assertEnum(payload.category, POST_CATEGORIES, 'category')
+    const location = await locationResolutionService.enrichLocation(normalizeLocation(payload.location))
 
     const post = await postRepository.create({
       authorId: userId,
       content,
       images: normalizeImages(payload.images),
-      location: normalizeLocation(payload.location),
+      location,
       category: payload.category,
       status: POST_STATUSES.includes(payload.status) ? payload.status : 'pending',
     })
@@ -126,7 +193,8 @@ class PostService {
       () => postRepository.findById(postId)
     )
     if (!post) throw new Error('Post not found')
-    return post
+
+    return this.normalizePostForRead(post)
   }
 
   async updateStatus(postId, userId, status) {
@@ -305,11 +373,25 @@ class PostService {
       limit: Number(query.limit || 50),
     }
 
-    return redisCache.remember(
+    const result = await redisCache.remember(
       getNearbyCacheKey(normalizedQuery),
       config.redisPostTtlSeconds,
       () => postRepository.nearby(normalizedQuery)
     )
+
+    const normalizedPosts = await this.normalizePostsForRead(result?.posts || [])
+    const normalizedResult = {
+      ...(result || {}),
+      posts: normalizedPosts,
+    }
+
+    await redisCache.setJson(
+      getNearbyCacheKey(normalizedQuery),
+      normalizedResult,
+      config.redisPostTtlSeconds
+    )
+
+    return normalizedResult
   }
 
   async inBounds(query = {}) {
@@ -317,11 +399,25 @@ class PostService {
     required.forEach((field) => {
       if (!Number.isFinite(Number(query[field]))) throw new Error(`${field} is required`)
     })
-    return redisCache.remember(
+    const result = await redisCache.remember(
       getInBoundsCacheKey(query),
       config.redisPostTtlSeconds,
       () => postRepository.inBounds(query)
     )
+
+    const normalizedPosts = await this.normalizePostsForRead(result?.posts || [])
+    const normalizedResult = {
+      ...(result || {}),
+      posts: normalizedPosts,
+    }
+
+    await redisCache.setJson(
+      getInBoundsCacheKey(query),
+      normalizedResult,
+      config.redisPostTtlSeconds
+    )
+
+    return normalizedResult
   }
 }
 

@@ -11,4 +11,5 @@ dist/
 build/
 *.md
 !.README.md
+!DEPLOY_BACKEND_GITHUB_ACTIONS_EC2.md
 .node_modules

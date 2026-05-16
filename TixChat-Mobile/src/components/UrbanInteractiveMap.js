@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native'
+import { formatLocationLabel } from '../utils/addressFormat'
 
 const NativeWebView = Platform.OS === 'web' ? null : require('react-native-webview').WebView
 
@@ -443,7 +444,7 @@ export default function UrbanInteractiveMap({
         status: post?.status || 'pending',
         category: post?.category || 'other',
         categoryLabel: String(post?.categoryLabel || ''),
-        address: String(post?.location?.address || ''),
+        address: String(formatLocationLabel(post?.location) || ''),
       }))
       .filter((post) => Number.isFinite(post.lat) && Number.isFinite(post.lng)),
     selectedPostId,
