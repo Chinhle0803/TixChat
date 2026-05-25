@@ -37,7 +37,7 @@ export default function CallsScreen({ onOpenChats, onOpenUrban, onOpenAssistant,
       <EmptyState
         icon="clock-outline"
         title="Chưa có lịch sử cuộc gọi"
-        description="Call history sẽ hiển thị khi backend cung cấp endpoint recent/missed calls."
+        description="Lịch sử cuộc gọi sẽ hiển thị khi backend cung cấp endpoint cuộc gọi gần đây/cuộc gọi nhỡ."
       />
 
       <MobileBottomTabBar

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { FiBell, FiMessageSquare, FiPhone, FiPhoneCall, FiX } from 'react-icons/fi'
+import { FiBell, FiMessageSquare, FiPhoneCall, FiX } from 'react-icons/fi'
 import { useRealtimeUiStore } from '../store/realtimeUiStore'
 import '../styles/InAppBannerHost.css'
 
@@ -41,6 +41,7 @@ export default function InAppBannerHost({
         const conversationId = String(banner?.data?.conversationId || '').trim()
         const callId = String(banner?.data?.callId || '').trim()
         const isCallBanner = banner.type === 'call'
+        const isJoinCallBanner = isCallBanner && banner?.data?.action === 'join'
 
         const handleOpen = () => {
           dismissBanner(banner.id)
@@ -49,6 +50,14 @@ export default function InAppBannerHost({
             return
           }
           onOpenConversation?.(conversationId)
+        }
+
+        const handleSecondaryCallAction = () => {
+          if (isJoinCallBanner) {
+            dismissBanner(banner.id)
+            return
+          }
+          onDeclineCall?.(callId)
         }
 
         return (
@@ -78,16 +87,16 @@ export default function InAppBannerHost({
                   <button
                     type="button"
                     className="inapp-banner-action secondary"
-                    onClick={() => onDeclineCall?.(callId)}
+                    onClick={handleSecondaryCallAction}
                   >
-                    Từ chối
+                    {isJoinCallBanner ? 'Ẩn' : 'Từ chối'}
                   </button>
                   <button
                     type="button"
                     className="inapp-banner-action primary"
                     onClick={() => onAcceptCall?.(callId, conversationId)}
                   >
-                    Nghe máy
+                    {isJoinCallBanner ? 'Tham gia' : 'Nghe máy'}
                   </button>
                 </>
               ) : (

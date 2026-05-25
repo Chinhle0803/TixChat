@@ -2,3 +2,6 @@ node_modules/
 .expo/
 .expo-shared/
 .env
+android/signing-local.properties
+android/app/*.keystore
+android/app/*.jks

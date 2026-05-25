@@ -106,6 +106,20 @@ const formatTime = (value) => {
   })
 }
 
+const formatCallDuration = (totalSeconds = 0) => {
+  const numericSeconds = Number(totalSeconds)
+  const safeSeconds = Number.isFinite(numericSeconds) ? Math.max(0, Math.floor(numericSeconds)) : 0
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
 const extractLinksFromText = (text) => {
   if (!text || typeof text !== 'string') return []
   const matches = text.match(/https?:\/\/[^\s]+/g)
@@ -176,6 +190,7 @@ export default function ChatScreen({
   onRefreshConversationData,
   onShowDialog,
   onStartCall,
+  onJoinCall,
 }) {
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window')
@@ -971,7 +986,13 @@ export default function ChatScreen({
           const senderId = normalizeId(item?.senderId)
           const isMe = senderId === normalizeId(currentUserId)
           const messageType = String(item?.type || '').toLowerCase()
+          const messageMetadata = item?.metadata || {}
+          const isCallMessage = messageMetadata?.kind === 'call'
           const isSystemMessage = messageType === 'system' || item?.isSystem === true
+          const isActiveGroupCallNotice =
+            messageMetadata?.kind === 'group_call_active' &&
+            messageMetadata?.active !== false &&
+            normalizeId(messageMetadata?.callId)
           const isEmojiMessage = messageType === 'emoji'
           const itemMessageId = normalizeId(item?._id || item?.messageId)
           const nextMessage = messages?.[index + 1]
@@ -1018,10 +1039,96 @@ export default function ChatScreen({
             }))
             .filter((entry) => entry.count > 0)
 
+          if (isCallMessage) {
+            const callType = String(messageMetadata?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'
+            const displayStatus = String(messageMetadata?.displayStatus || '').toLowerCase()
+            const isMissedCall =
+              displayStatus === 'missed' ||
+              String(displayText || '').toLowerCase().includes('nhỡ')
+            const callTitle = isMissedCall ? `Cuộc gọi ${callType} nhỡ` : `Cuộc gọi ${callType}`
+            const callSubtitle = isMissedCall
+              ? 'Không có ai bắt máy'
+              : `Thời gian gọi: ${formatCallDuration(messageMetadata?.durationSeconds)}`
+            const senderInitial = String(senderDisplayName || '?').slice(0, 1).toUpperCase()
+
+            return (
+              <View style={[styles.callMessageRow, isMe ? styles.callMessageRowMe : styles.callMessageRowOther]}>
+                {!isMe ? (
+                  <View style={[styles.messageAvatarSlot, styles.callMessageAvatarSlot]}>
+                    {senderAvatar ? (
+                      <Image source={{ uri: senderAvatar }} style={styles.messageAvatar} />
+                    ) : (
+                      <View style={styles.messageAvatarFallback}>
+                        <Text style={styles.messageAvatarFallbackText}>{senderInitial}</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+
+                <View style={styles.callMessageColumnWrap}>
+                  <View
+                    style={[
+                      styles.callMessageCard,
+                      isMissedCall ? styles.callMessageCardMissed : styles.callMessageCardCompleted,
+                    ]}
+                  >
+                    <View style={styles.callMessageContent}>
+                      <View
+                        style={[
+                          styles.callMessageIconWrap,
+                          isMissedCall ? styles.callMessageIconWrapMissed : styles.callMessageIconWrapCompleted,
+                        ]}
+                      >
+                        <MaterialCommunityIcons
+                          name={callType === 'video' ? 'video-outline' : 'phone-outline'}
+                          style={[
+                            styles.callMessageIcon,
+                            isMissedCall ? styles.callMessageIconMissed : styles.callMessageIconCompleted,
+                          ]}
+                        />
+                      </View>
+                      <View style={styles.callMessageCopy}>
+                        <Text style={styles.callMessageTitle} numberOfLines={1}>
+                          {callTitle}
+                        </Text>
+                        <Text style={styles.callMessageSubtitle} numberOfLines={1}>
+                          {callSubtitle}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.callMessageTime}>
+                      {formatTime(item?.createdAt || item?.updatedAt)}
+                    </Text>
+                  </View>
+                </View>
+
+                {isMe ? (
+                  <View style={[styles.messageAvatarSlot, styles.messageAvatarSlotMe, styles.callMessageAvatarSlot]}>
+                    {senderAvatar ? (
+                      <Image source={{ uri: senderAvatar }} style={styles.messageAvatar} />
+                    ) : (
+                      <View style={styles.messageAvatarFallback}>
+                        <Text style={styles.messageAvatarFallbackText}>{senderInitial}</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+              </View>
+            )
+          }
+
           if (isSystemMessage) {
             return (
               <View style={styles.systemMessageRow}>
                 <View style={styles.systemMessageChip}>
+                  {isActiveGroupCallNotice ? (
+                    <Pressable
+                      style={styles.systemCallJoinButton}
+                      onPress={() => onJoinCall?.(messageMetadata.callId)}
+                    >
+                      <Text style={styles.systemCallJoinButtonText}>Tham gia cuộc gọi</Text>
+                    </Pressable>
+                  ) : null}
                   <Text style={styles.systemMessageText}>{displayText || '[Thông báo hệ thống]'}</Text>
                 </View>
               </View>
@@ -2210,6 +2317,113 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     fontWeight: '600',
+  },
+  systemCallJoinButton: {
+    alignSelf: 'center',
+    backgroundColor: '#1663e7',
+    borderRadius: 999,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  systemCallJoinButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  callMessageRow: {
+    marginVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  callMessageRowMe: {
+    justifyContent: 'flex-end',
+  },
+  callMessageRowOther: {
+    justifyContent: 'flex-start',
+  },
+  callMessageAvatarSlot: {
+    alignSelf: 'flex-end',
+    marginBottom: 4,
+  },
+  callMessageColumnWrap: {
+    maxWidth: '76%',
+    flexShrink: 1,
+  },
+  callMessageCard: {
+    width: '100%',
+    minWidth: 214,
+    minHeight: 112,
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  callMessageCardCompleted: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+  },
+  callMessageCardMissed: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#fca5a5',
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.09,
+  },
+  callMessageContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  callMessageIconWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  callMessageIconWrapCompleted: {
+    backgroundColor: '#dbeafe',
+  },
+  callMessageIconWrapMissed: {
+    backgroundColor: '#ffe4e6',
+  },
+  callMessageIcon: {
+    fontSize: 24,
+  },
+  callMessageIconCompleted: {
+    color: '#2563eb',
+  },
+  callMessageIconMissed: {
+    color: '#ef4444',
+  },
+  callMessageCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 2,
+  },
+  callMessageTitle: {
+    color: '#020617',
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 21,
+  },
+  callMessageSubtitle: {
+    marginTop: 4,
+    color: '#4b5563',
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  callMessageTime: {
+    marginTop: 18,
+    alignSelf: 'center',
+    color: '#52525b',
+    fontSize: 13,
   },
   messageRow: { marginVertical: 4, flexDirection: 'row' },
   messageRowMe: { justifyContent: 'flex-end' },

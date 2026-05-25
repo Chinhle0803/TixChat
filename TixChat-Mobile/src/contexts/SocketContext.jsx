@@ -67,6 +67,8 @@ export const SocketProvider = ({ children }) => {
     }
     socket.on('message:received', messageReceivedHandler)
     cleanupListeners.push({ event: 'message:received', handler: messageReceivedHandler })
+    socket.on('message:sent', messageReceivedHandler)
+    cleanupListeners.push({ event: 'message:sent', handler: messageReceivedHandler })
 
     const messageDeliveredHandler = ({ messageId, userId }) => {
       updateMessage(messageId, { status: 'delivered' })

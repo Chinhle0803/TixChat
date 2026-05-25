@@ -1,16 +1,14 @@
 import React, { useMemo, useState } from 'react'
 import {
-  View,
   Text,
   TextInput,
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Platform,
-  KeyboardAvoidingView,
-  ScrollView,
+  View,
 } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
+import AuthScaffold, { authPalette } from './AuthScaffold'
 
 const initialForm = {
   username: '',
@@ -85,7 +83,7 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
         <TextInput
           style={styles.input}
           placeholder="john_doe"
-          placeholderTextColor="#87919d"
+          placeholderTextColor="#94A3B8"
           autoCapitalize="none"
           value={form.username}
           onChangeText={(value) => setForm((prev) => ({ ...prev, username: value }))}
@@ -97,7 +95,7 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
         <TextInput
           style={styles.input}
           placeholder="youremail@example.com"
-          placeholderTextColor="#87919d"
+          placeholderTextColor="#94A3B8"
           keyboardType="email-address"
           autoCapitalize="none"
           value={form.email}
@@ -110,7 +108,7 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
         <TextInput
           style={styles.input}
           placeholder="John Doe"
-          placeholderTextColor="#87919d"
+          placeholderTextColor="#94A3B8"
           value={form.fullName}
           onChangeText={(value) => setForm((prev) => ({ ...prev, fullName: value }))}
         />
@@ -122,7 +120,7 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
           <TextInput
             style={styles.passwordInput}
             placeholder="••••••••"
-            placeholderTextColor="#87919d"
+            placeholderTextColor="#94A3B8"
             secureTextEntry={!showPassword}
             autoComplete="new-password"
             value={form.password}
@@ -140,7 +138,7 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
           <TextInput
             style={styles.passwordInput}
             placeholder="••••••••"
-            placeholderTextColor="#87919d"
+            placeholderTextColor="#94A3B8"
             secureTextEntry={!showConfirmPassword}
             autoComplete="new-password"
             value={form.confirmPassword}
@@ -175,120 +173,53 @@ export default function RegisterScreen({ onSubmit, onSwitchToLogin, loading, err
   )
 
   return (
-    <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: undefined })} style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.card}>
-          <View style={styles.brandRow}>
-            <MaterialCommunityIcons name="chat-processing-outline" style={styles.brandIcon} />
-            <Text style={styles.title}>Chat TixChat</Text>
-          </View>
-          <Text style={styles.subtitle}>Tham gia TixChat ngay hôm nay</Text>
-
-          {Platform.OS === 'web' ? (
-            <form
-              style={styles.form}
-              onSubmit={(event) => {
-                event.preventDefault()
-                submit()
-              }}
-            >
-              {formContent}
-            </form>
-          ) : (
-            <View style={styles.form}>{formContent}</View>
-          )}
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    <AuthScaffold subtitle="Tham gia TixChat ngay hôm nay" icon="chat-processing-outline">
+      <View style={styles.form}>{formContent}</View>
+    </AuthScaffold>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#231f4e',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    paddingVertical: 24,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 430,
-    backgroundColor: '#f4f5f7',
-    borderRadius: 16,
-    padding: 22,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  brandIcon: {
-    fontSize: 30,
-    color: '#a1a1aa',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#7b8794',
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 14,
-  },
   form: {
     width: '100%',
   },
   fieldGroup: {
     width: '100%',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   label: {
-    fontSize: 17,
-    color: '#4b5563',
+    fontSize: 14,
+    color: authPalette.text,
     fontWeight: '600',
     marginBottom: 8,
-    marginTop: 6,
+    marginTop: 4,
   },
   input: {
-    backgroundColor: '#f4f5f7',
-    borderColor: '#d1d5db',
-    borderWidth: 1,
+    backgroundColor: authPalette.card,
+    borderColor: authPalette.border,
+    borderWidth: 2,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 12,
     fontSize: 16,
-    color: '#334155',
+    color: authPalette.text,
   },
   passwordWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderWidth: 2,
+    borderColor: authPalette.border,
     borderRadius: 10,
     marginBottom: 12,
-    backgroundColor: '#f4f5f7',
+    backgroundColor: authPalette.card,
   },
   passwordInput: {
     flex: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#334155',
+    color: authPalette.text,
   },
   eyeBtn: {
     width: 44,
@@ -297,17 +228,17 @@ const styles = StyleSheet.create({
   },
   eyeIcon: {
     fontSize: 22,
-    color: '#6b3f87',
+    color: authPalette.primary,
   },
   button: {
-    backgroundColor: '#6178e4',
+    backgroundColor: authPalette.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 8,
-    shadowColor: '#6178e4',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowColor: authPalette.primary,
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
@@ -315,13 +246,13 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    color: '#111827',
+    color: '#1A1A1A',
     fontWeight: '700',
     fontSize: 16,
   },
   divider: {
     height: 1,
-    backgroundColor: '#d1d5db',
+    backgroundColor: authPalette.border,
     marginTop: 18,
     marginBottom: 10,
   },
@@ -332,17 +263,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   linkHint: {
-    color: '#7b8794',
-    fontSize: 16,
+    color: authPalette.textMuted,
+    fontSize: 14,
   },
   linkText: {
-    color: '#1f2937',
+    color: authPalette.text,
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 14,
   },
   error: {
-    color: '#dc2626',
+    color: authPalette.danger,
     marginBottom: 8,
     textAlign: 'center',
+    backgroundColor: authPalette.dangerSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(220, 38, 38, 0.22)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
 })

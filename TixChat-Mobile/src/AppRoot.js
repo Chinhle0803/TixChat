@@ -1,33 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform, StatusBar } from 'react-native'
-import { NavigationContainer } from '@react-navigation/native'
-import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { StatusBar as ExpoStatusBar } from 'expo-status-bar'
+import { Platform } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
-import AuthScreen from './components/AuthScreen'
-import RegisterScreen from './components/RegisterScreen'
-import VerifyOtpScreen from './components/VerifyOtpScreen'
-import ForgotPasswordScreen from './components/ForgotPasswordScreen'
-import ConversationListScreen from './components/ConversationListScreen'
-import ChatScreen from './components/ChatScreen'
-import MobileCallOverlay from './components/MobileCallOverlay'
-import MobileInAppBannerHost from './components/MobileInAppBannerHost'
-import ProfileScreen from './components/ProfileScreen'
-import FriendHubScreen from './components/FriendHubScreen'
-import CreateGroupScreen from './components/CreateGroupScreen'
-import DiscoverScreen from './components/DiscoverScreen'
-import DiaryScreen from './components/DiaryScreen'
-import UrbanIncidentScreen from './components/UrbanIncidentScreen'
-import AssistantScreen from './components/AssistantScreen'
-import CallsScreen from './components/CallsScreen'
-import AppDialogModal from './components/AppDialogModal'
 import ErrorBoundary from './components/ErrorBoundary'
+import AppLoadingScreen from './components/AppLoadingScreen'
+import RootNavigator from './navigation/RootNavigator'
+import { ROUTES } from './navigation/routes'
+import { normalizeAuthState, syncAuthStoreState, useAppBootstrap } from './bootstrap/useAppBootstrap'
 import { SocketProvider } from './contexts/SocketContext'
 import { DialogProvider } from './contexts/DialogContext'
-import { AuthProvider, useAuthStore } from './stores/authStore'
-import { ChatProvider, useChatStore } from './stores/chatStore'
-import { UiProvider, useUiStore } from './stores/uiStore'
+import { AuthProvider } from './stores/authStore'
+import { ChatProvider } from './stores/chatStore'
+import { UiProvider } from './stores/uiStore'
 import { authApi, userApi, conversationApi, messageApi, notificationApi, callApi, setInMemoryAuth } from './services/api'
 import {
   buildIncomingMessageHandler,
@@ -41,7 +25,6 @@ import {
   onTypingStop,
 } from './services/socket'
 import { storage } from './services/storage'
-import { useAppTheme } from './theme'
 import {
   MOBILE_CHIME_EVENTS,
   addMobileChimeEventListener,
@@ -55,15 +38,21 @@ import {
 } from './services/mobileChimeBridge'
 import {
   addNotificationResponseListener,
+  requestNotificationPermissionAsync,
   registerForPushNotificationsAsync,
   scheduleCallNotification,
   scheduleMessageNotification,
 } from './services/notifications'
+import {
+  ensureCallMediaPermissions,
+  ensureLocationPermission,
+  ensureMediaLibraryPermission,
+  requestInitialAppPermissions,
+} from './services/permissions'
 
-const Stack = createNativeStackNavigator()
 
 const normalizeId = (value) => {
-  if (!value) return ''
+  if (value === null || value === undefined || value === '') return ''
   if (typeof value === 'object') {
     return String(value._id || value.userId || value.id || value.conversationId || value.messageId || '')
   }
@@ -350,10 +339,15 @@ const sortMessagesAsc = (items) =>
     return tsA - tsB
   })
 
-<<<<<<< HEAD
 const MAX_IN_APP_BANNERS = 2
 
 const getInAppBannerId = (type, entityId) => `${String(type || 'system')}:${String(entityId || 'unknown')}`
+const realtimeDiagnosticsEnabled = String(process.env.EXPO_PUBLIC_API_DIAGNOSTICS || '').toLowerCase() === 'true'
+
+const logRealtimeDiagnostic = (eventName, details = {}) => {
+  if (!realtimeDiagnosticsEnabled) return
+  console.log(`[realtime:${eventName}]`, details)
+}
 
 const getInAppBannerPriority = (banner = {}) => {
   const type = String(banner?.type || '').toLowerCase()
@@ -435,8 +429,13 @@ const resolveCallBannerTitle = ({ call, conversation, currentUserId }) => {
   return getParticipantName(counterpart || call?.caller || conversation) || 'Cuộc gọi đến'
 }
 
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
+const getPreferredMobileAudioRoute = (routes = []) => {
+  const normalizedRoutes = Array.isArray(routes) ? routes.map((route) => String(route || '')) : []
+  if (normalizedRoutes.includes('earpiece')) return 'earpiece'
+  if (normalizedRoutes.includes('speaker')) return 'speaker'
+  return normalizedRoutes.find(Boolean) || 'speaker'
+}
+
 const getRequestErrorMessage = (error, fallbackMessage) => {
   const serverMessage = String(
     error?.response?.data?.error || error?.response?.data?.message || ''
@@ -450,6 +449,10 @@ const getRequestErrorMessage = (error, fallbackMessage) => {
 
   if (error?.request && !error?.response) {
     return 'Không kết nối được máy chủ. Vui lòng kiểm tra mạng và cấu hình API.'
+  }
+
+  if (error?.code && error?.message) {
+    return error.message
   }
 
   return fallbackMessage
@@ -511,20 +514,20 @@ const normalizeAuthPayload = (response) => {
 }
 
 export default function AppRoot() {
-  const appTheme = useAppTheme()
   const [booting, setBooting] = useState(true)
+  const [bootHasCachedAuth, setBootHasCachedAuth] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [user, setUser] = useState(null)
   const [accessToken, setAccessToken] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('')
-<<<<<<< HEAD
   const [profileLocationPromptToken, setProfileLocationPromptToken] = useState(0)
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const [loadingConversations, setLoadingConversations] = useState(false)
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false)
+  const [minLoadingDone, setMinLoadingDone] = useState(false)
+  const [progressBarFinished, setProgressBarFinished] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [conversations, setConversations] = useState([])
@@ -550,13 +553,10 @@ export default function AppRoot() {
     isCameraEnabled: false,
     videoTiles: [],
     activeSpeakerId: '',
-    audioRoute: 'speaker',
-    availableAudioRoutes: ['speaker'],
+    audioRoute: 'earpiece',
+    availableAudioRoutes: ['earpiece', 'speaker'],
   })
-<<<<<<< HEAD
   const [inAppBanners, setInAppBanners] = useState([])
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const profileCacheRef = useRef({})
   const conversationsRef = useRef([])
   const conversationPreferencesRef = useRef({})
@@ -564,25 +564,62 @@ export default function AppRoot() {
   const pushTokenRef = useRef('')
   const foregroundNotificationIdsRef = useRef(new Set())
   const incomingCallNotificationIdsRef = useRef(new Set())
-  const incomingCallDialogIdsRef = useRef(new Set())
   const acceptingMobileCallIdsRef = useRef(new Set())
   const mobileCallStateRef = useRef(mobileCallState)
   const pendingMobileJoinInfoRef = useRef(null)
-<<<<<<< HEAD
   const inAppBannerTimersRef = useRef(new Map())
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
+  const callRecoveryKeyRef = useRef('')
+  const initialPermissionsRequestedRef = useRef(false)
 
   const activeConversationIdRef = useRef('')
   const typingTimeoutRef = useRef(null)
 
   const authenticated = Boolean(user && accessToken)
 
+  useAppBootstrap({
+    setBooting,
+    setBootHasCachedAuth,
+    setUser,
+    setAccessToken,
+    setRefreshToken,
+    setConversationPreferences,
+  })
+
+  useEffect(() => {
+    if (booting || initialPermissionsRequestedRef.current) return
+    initialPermissionsRequestedRef.current = true
+
+    requestInitialAppPermissions({
+      requestNotifications: () => requestNotificationPermissionAsync({ requestIfNeeded: true }),
+    }).catch((error) => {
+      console.warn('Không thể xin quyền khi khởi động ứng dụng:', error?.message || error)
+    })
+  }, [booting])
+
+  // Ensure loading screen shows for at least 2 seconds after authentication
+  useEffect(() => {
+    if (!authenticated) {
+      setMinLoadingDone(false)
+      return undefined
+    }
+    const timer = setTimeout(() => setMinLoadingDone(true), 2000)
+    return () => clearTimeout(timer)
+  }, [authenticated])
+
+  // Give the progress bar time to animate to 100% after data is loaded
+  useEffect(() => {
+    if (initialDataLoaded) {
+      const timer = setTimeout(() => setProgressBarFinished(true), 400)
+      return () => clearTimeout(timer)
+    } else {
+      setProgressBarFinished(false)
+    }
+  }, [initialDataLoaded])
+
   useEffect(() => {
     mobileCallStateRef.current = mobileCallState
   }, [mobileCallState])
 
-<<<<<<< HEAD
   const clearInAppBannerTimer = useCallback((bannerId) => {
     const timerId = inAppBannerTimersRef.current.get(bannerId)
     if (timerId) {
@@ -628,8 +665,6 @@ export default function AppRoot() {
     inAppBannerTimersRef.current.clear()
   }, [])
 
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const showAppDialog = useCallback(({ title, message, actions }) => {
     const safeActions = Array.isArray(actions) && actions.length > 0
       ? actions
@@ -673,13 +708,61 @@ export default function AppRoot() {
     })
   }, [])
 
-  const applyAuth = useCallback(async (nextAuth) => {
-    await storage.setAuth(nextAuth)
-    setInMemoryAuth(nextAuth)
+  const updateParticipantPresence = useCallback((userId, patch = {}) => {
+    const targetUserId = normalizeId(userId)
+    if (!targetUserId) return
 
-    setUser(nextAuth.user)
-    setAccessToken(nextAuth.accessToken)
-    setRefreshToken(nextAuth.refreshToken || '')
+    const normalizedPatch = {
+      ...patch,
+      _id: targetUserId,
+      userId: targetUserId,
+    }
+
+    profileCacheRef.current = {
+      ...profileCacheRef.current,
+      [targetUserId]: {
+        ...(profileCacheRef.current?.[targetUserId] || {}),
+        ...normalizedPatch,
+      },
+    }
+
+    setConversations((prev) =>
+      prev.map((conversation) => {
+        const participants = Array.isArray(conversation?.participants) ? conversation.participants : []
+        let changed = false
+
+        const nextParticipants = participants.map((participant) => {
+          const participantId = getParticipantId(participant)
+          if (participantId !== targetUserId) return participant
+
+          changed = true
+          if (participant && typeof participant === 'object') {
+            return {
+              ...participant,
+              ...normalizedPatch,
+              _id: participant?._id || targetUserId,
+              userId: participant?.userId || targetUserId,
+            }
+          }
+
+          return normalizedPatch
+        })
+
+        return changed ? { ...conversation, participants: nextParticipants } : conversation
+      })
+    )
+  }, [])
+
+  const applyAuth = useCallback(async (nextAuth) => {
+    const normalizedAuth = normalizeAuthState(nextAuth)
+
+    await storage.setAuth(normalizedAuth)
+    setInMemoryAuth(normalizedAuth)
+    syncAuthStoreState(normalizedAuth)
+
+    setUser(normalizedAuth.user)
+    setAccessToken(normalizedAuth.accessToken)
+    setRefreshToken(normalizedAuth.refreshToken || '')
     setAuthError('')
   }, [])
 
@@ -734,7 +817,7 @@ export default function AppRoot() {
     try {
       const [conversationResponse, unreadResponse] = await Promise.all([
         conversationApi.getConversations(),
-        messageApi.getUnreadCounts(),
+        messageApi.getUnreadCounts().catch(() => ({ data: { unreadByConversation: {} } })),
       ])
 
       const list = conversationResponse?.data?.conversations || []
@@ -762,8 +845,10 @@ export default function AppRoot() {
 
       setConversations(sortConversations(normalized))
       setUnreadByConversation(unreadMap)
+      setInitialDataLoaded(true)
     } catch (error) {
-  showNotice('Lỗi', error?.response?.data?.error || 'Không tải được danh sách cuộc trò chuyện')
+      showNotice('Lỗi', error?.response?.data?.error || 'Không tải được danh sách cuộc trò chuyện')
+      setInitialDataLoaded(true)
     } finally {
       setLoadingConversations(false)
     }
@@ -806,14 +891,19 @@ export default function AppRoot() {
       setChatScrollRequestKey((prev) => prev + 1)
       activeConversationIdRef.current = conversationId
 
-      await joinConversationRoom(conversationId)
-      await messageApi.markAsSeen(conversationId)
+      joinConversationRoom(conversationId).catch((roomError) => {
+        console.warn('Failed to join conversation room:', roomError?.message || roomError)
+      })
+
+      messageApi.markAsSeen(conversationId).catch((seenError) => {
+        console.warn('Failed to mark conversation as seen:', seenError?.message || seenError)
+      })
 
       setUnreadByConversation((prev) => ({ ...prev, [conversationId]: 0 }))
       upsertConversation(conversationId, { unreadCount: 0 })
       return true
     } catch (error) {
-  showNotice('Lỗi', error?.response?.data?.error || 'Không tải được nội dung cuộc trò chuyện')
+      showNotice('Lỗi', error?.response?.data?.error || 'Không tải được nội dung cuộc trò chuyện')
       return false
     } finally {
       setLoadingMessages(false)
@@ -1016,17 +1106,15 @@ export default function AppRoot() {
       })
     } catch (error) {
       setMessages((prev) => prev.filter((msg) => normalizeId(msg?._id || msg?.messageId) !== tempMessageId))
-  showNotice('Lỗi', error?.response?.data?.error || 'Gửi attachment thất bại')
+      showNotice('Lỗi', error?.response?.data?.error || 'Gửi attachment thất bại')
     }
   }, [upsertConversation, user])
 
   const pickImageAndSend = useCallback(async (replyTo = null) => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (permission.status !== 'granted') {
-  showNotice('Thiếu quyền', 'Bạn cần cấp quyền thư viện để gửi ảnh.')
-        return
-      }
+      await ensureMediaLibraryPermission({
+        deniedMessage: 'Bạn cần cấp quyền thư viện để gửi ảnh.',
+      })
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: IMAGE_PICKER_MEDIA_TYPES,
@@ -1037,9 +1125,9 @@ export default function AppRoot() {
         return
       }
 
-  await sendAttachmentMessage(result.assets[0], 'Ảnh', replyTo)
+      await sendAttachmentMessage(result.assets[0], 'Ảnh', replyTo)
     } catch (error) {
-  showNotice('Lỗi', error?.message || 'Không thể chọn ảnh')
+      showNotice('Lỗi', error?.message || 'Không thể chọn ảnh')
     }
   }, [sendAttachmentMessage])
 
@@ -1342,10 +1430,12 @@ export default function AppRoot() {
     disconnectSocket()
     await storage.clearAuth()
     setInMemoryAuth({ user: null, accessToken: null, refreshToken: null })
+    syncAuthStoreState({ user: null, accessToken: '', refreshToken: '' })
 
     setUser(null)
     setAccessToken('')
     setRefreshToken('')
+    setBootHasCachedAuth(false)
     setAuthError('')
     setPendingVerificationEmail('')
 
@@ -1354,6 +1444,9 @@ export default function AppRoot() {
     setMessages([])
     setTypingByConversation({})
     setConversationPreferences({})
+    setInitialDataLoaded(false)
+    setMinLoadingDone(false)
+    setProgressBarFinished(false)
     activeConversationIdRef.current = ''
   }, [])
 
@@ -1515,11 +1608,7 @@ export default function AppRoot() {
     }
   }, [])
 
-<<<<<<< HEAD
   const updateProfile = useCallback(async ({ displayName, bio, province, district, location }) => {
-=======
-  const updateProfile = useCallback(async ({ displayName, bio, province, district }) => {
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
     setAuthLoading(true)
     setAuthError('')
 
@@ -1530,10 +1619,7 @@ export default function AppRoot() {
         bio,
         province,
         district,
-<<<<<<< HEAD
         location,
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
       })
 
       const updated = response?.data?.user
@@ -1550,10 +1636,7 @@ export default function AppRoot() {
         bio: updated?.bio || bio || '',
         province: updated?.province ?? province ?? user?.province ?? '',
         district: updated?.district ?? district ?? user?.district ?? '',
-<<<<<<< HEAD
         location: updated?.location ?? location ?? user?.location ?? null,
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
       }
 
       await applyAuth({
@@ -1572,11 +1655,17 @@ export default function AppRoot() {
     }
   }, [applyAuth, user, accessToken, refreshToken])
 
-<<<<<<< HEAD
-  const openProfileLocationPicker = useCallback((navigation) => {
-    setProfileLocationPromptToken(Date.now())
-    navigation.navigate('Profile')
-  }, [])
+  const openProfileLocationPicker = useCallback(async (navigation) => {
+    try {
+      await ensureLocationPermission({
+        deniedMessage: 'Bạn cần cấp quyền định vị để chọn vị trí hồ sơ.',
+      })
+      setProfileLocationPromptToken(Date.now())
+      navigation.navigate(ROUTES.PROFILE)
+    } catch (error) {
+      showNotice('Thiếu quyền', error?.message || 'Không thể truy cập vị trí trên thiết bị này')
+    }
+  }, [showNotice])
 
   const openConversationFromBanner = useCallback(async (conversationId) => {
     const normalizedConversationId = normalizeId(conversationId)
@@ -1593,14 +1682,12 @@ export default function AppRoot() {
     })
 
     if (opened) {
-      navigationRef.current?.navigate?.('Chat')
+      navigationRef.current?.navigate?.(ROUTES.CHAT)
     }
 
     return opened
   }, [openConversation])
 
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
   const updatePassword = useCallback(async ({ currentPassword, newPassword, confirmPassword }) => {
     setAuthLoading(true)
     setAuthError('')
@@ -1626,10 +1713,9 @@ export default function AppRoot() {
     setAuthError('')
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (permission.status !== 'granted') {
-        throw new Error('Bạn cần cấp quyền thư viện để cập nhật avatar')
-      }
+      await ensureMediaLibraryPermission({
+        deniedMessage: 'Bạn cần cấp quyền thư viện để cập nhật avatar.',
+      })
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: IMAGE_PICKER_MEDIA_TYPES,
@@ -1671,7 +1757,7 @@ export default function AppRoot() {
 
       return { ok: true }
     } catch (error) {
-      const errorMsg = getRequestErrorMessage(error, 'Không thể cập nhật avatar')
+      const errorMsg = error?.message || getRequestErrorMessage(error, 'Không thể cập nhật avatar')
       setAuthError(errorMsg)
       return { ok: false, error: errorMsg }
     } finally {
@@ -1764,11 +1850,9 @@ export default function AppRoot() {
     if (!conversationId) return
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (permission.status !== 'granted') {
-  showNotice('Thiếu quyền', 'Bạn cần cấp quyền thư viện để cập nhật ảnh nhóm')
-        return
-      }
+      await ensureMediaLibraryPermission({
+        deniedMessage: 'Bạn cần cấp quyền thư viện để cập nhật ảnh nhóm.',
+      })
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: IMAGE_PICKER_MEDIA_TYPES,
@@ -1798,7 +1882,7 @@ export default function AppRoot() {
         avatar: updatedConversation?.avatar || '',
       })
     } catch (error) {
-  showNotice('Lỗi', getRequestErrorMessage(error, 'Không thể cập nhật ảnh đại diện nhóm'))
+      showNotice('Lỗi', error?.message || getRequestErrorMessage(error, 'Không thể cập nhật ảnh đại diện nhóm'))
     }
   }, [upsertConversation])
 
@@ -1915,13 +1999,10 @@ export default function AppRoot() {
     await stopMobileChimeMeeting().catch(() => {})
     if (callId) {
       incomingCallNotificationIdsRef.current.delete(callId)
-      incomingCallDialogIdsRef.current.delete(callId)
       acceptingMobileCallIdsRef.current.delete(callId)
-<<<<<<< HEAD
       dismissInAppBanner(getInAppBannerId('call', callId))
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
+    callRecoveryKeyRef.current = ''
     pendingMobileJoinInfoRef.current = null
     setMobileCallState({
       visible: false,
@@ -1932,14 +2013,10 @@ export default function AppRoot() {
       isCameraEnabled: false,
       videoTiles: [],
       activeSpeakerId: '',
-      audioRoute: 'speaker',
-      availableAudioRoutes: ['speaker'],
+      audioRoute: 'earpiece',
+      availableAudioRoutes: ['earpiece', 'speaker'],
     })
-<<<<<<< HEAD
   }, [dismissInAppBanner])
-=======
-  }, [])
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
   const joinMobileCall = useCallback(async (joinInfo) => {
     const normalizedJoinInfo = normalizeJoinInfo(joinInfo)
@@ -1963,11 +2040,11 @@ export default function AppRoot() {
 
     try {
       const isVideoCall = String(normalizedJoinInfo.call?.callType || '').toLowerCase() === 'video'
-      const availableRoutes = await getMobileChimeAudioRoutes().catch(() => ['speaker'])
-      if (isVideoCall && availableRoutes.includes('speaker')) {
-        await setMobileChimeAudioRoute('speaker').catch(() => {})
-      }
+      await ensureCallMediaPermissions({ audio: true, video: isVideoCall })
       await startMobileChimeMeeting(normalizedJoinInfo)
+      const availableRoutes = await getMobileChimeAudioRoutes().catch(() => ['speaker'])
+      const preferredAudioRoute = getPreferredMobileAudioRoute(availableRoutes)
+      await setMobileChimeAudioRoute(preferredAudioRoute).catch(() => {})
       setMobileCallState((prev) => ({
         ...prev,
         visible: true,
@@ -1976,7 +2053,7 @@ export default function AppRoot() {
         error: '',
         isMuted: false,
         isCameraEnabled: isVideoCall,
-        audioRoute: isVideoCall && availableRoutes.includes('speaker') ? 'speaker' : (availableRoutes[0] || 'speaker'),
+        audioRoute: preferredAudioRoute,
         availableAudioRoutes: availableRoutes,
       }))
     } catch (error) {
@@ -1985,7 +2062,7 @@ export default function AppRoot() {
         visible: true,
         call: normalizedJoinInfo.call,
         phase: 'joining',
-        error: error?.message || 'Không thể join cuộc gọi trên mobile',
+        error: error?.message || 'Không thể tham gia cuộc gọi trên mobile',
       }))
     }
   }, [])
@@ -2004,9 +2081,11 @@ export default function AppRoot() {
         isCameraEnabled: false,
         videoTiles: [],
         activeSpeakerId: '',
-        audioRoute: 'speaker',
-        availableAudioRoutes: ['speaker'],
+        audioRoute: 'earpiece',
+        availableAudioRoutes: ['earpiece', 'speaker'],
       })
+      const isVideoCall = String(callType || '').toLowerCase() === 'video'
+      await ensureCallMediaPermissions({ audio: true, video: isVideoCall })
       const response = await callApi.startCall(conversationId, callType)
       pendingMobileJoinInfoRef.current = response?.data || null
       setMobileCallState((prev) => ({
@@ -2056,6 +2135,140 @@ export default function AppRoot() {
     }
   }, [joinMobileCall])
 
+  const joinAvailableMobileCall = useCallback(async (targetCall = null) => {
+    const callToJoin = normalizeId(targetCall?.callId) ? targetCall : mobileCallStateRef.current?.call
+    const callId = normalizeId(callToJoin?.callId || targetCall)
+    if (!callId) return
+
+    acceptingMobileCallIdsRef.current.add(callId)
+
+    try {
+      setMobileCallState((prev) => ({
+        ...prev,
+        visible: true,
+        call: callToJoin || prev.call,
+        phase: 'joining',
+        error: '',
+      }))
+      const response = await callApi.joinCall(callId)
+      pendingMobileJoinInfoRef.current = response?.data || null
+      dismissInAppBanner(getInAppBannerId('call', callId))
+      await joinMobileCall(response?.data)
+    } catch (error) {
+      acceptingMobileCallIdsRef.current.delete(callId)
+      setMobileCallState((prev) => ({
+        ...prev,
+        visible: true,
+        call: callToJoin || prev.call,
+        phase: 'idle',
+        error: getRequestErrorMessage(error, 'Không thể tham gia cuộc gọi'),
+      }))
+    }
+  }, [dismissInAppBanner, joinMobileCall])
+
+  const reconcileMobileCallState = useCallback(async (preferredCallId = '') => {
+    if (!authenticated) return
+
+    try {
+      const normalizedPreferredCallId = normalizeId(preferredCallId)
+      const response = normalizedPreferredCallId
+        ? await callApi.getCall(normalizedPreferredCallId)
+        : await callApi.getCurrentCall()
+      const call = response?.data?.call || null
+
+      if (!call?.callId) {
+        if (mobileCallStateRef.current?.call?.callId) {
+          await resetMobileCall()
+        }
+        return
+      }
+
+      const currentUserId = normalizeId(user?._id || user?.userId)
+      const callId = normalizeId(call?.callId)
+      const conversationId = normalizeId(call?.conversationId)
+      const status = String(call?.status || '').toLowerCase()
+      const viewerCallState = String(call?.viewerCallState || '').toLowerCase()
+      const recoveryKey = `${callId}:${status}:${viewerCallState}`
+      const currentCallId = normalizeId(mobileCallStateRef.current?.call?.callId)
+      const currentPhase = String(mobileCallStateRef.current?.phase || 'idle').toLowerCase()
+
+      if (callRecoveryKeyRef.current === recoveryKey) {
+        return
+      }
+      callRecoveryKeyRef.current = recoveryKey
+
+      if (status === 'ringing') {
+        dismissInAppBanner(getInAppBannerId('call', callId))
+        setMobileCallState((prev) => ({
+          ...prev,
+          visible: true,
+          call,
+          phase: normalizeId(call?.callerId) === currentUserId ? 'ringing' : 'incoming',
+          error: '',
+        }))
+        return
+      }
+
+      if (status === 'accepted' && viewerCallState === 'available') {
+        const matchedConversation = conversationsRef.current.find((conversation) => {
+          const id = normalizeId(conversation?._id || conversation?.conversationId)
+          return id === conversationId
+        })
+
+        upsertInAppBanner({
+          id: getInAppBannerId('call', callId),
+          type: 'call',
+          title: resolveCallBannerTitle({
+            call,
+            conversation: matchedConversation || { _id: conversationId, conversationId },
+            currentUserId,
+          }),
+          body: 'Cuộc gọi nhóm đang diễn ra. Nhấn để tham gia.',
+          data: {
+            type: 'call',
+            action: 'join',
+            callId,
+            conversationId,
+            call,
+          },
+          persistent: true,
+        })
+
+        if (currentCallId === callId && ['active', 'joining'].includes(currentPhase)) {
+          return
+        }
+
+        setMobileCallState((prev) => ({
+          ...prev,
+          visible: false,
+          call,
+          phase: 'idle',
+          error: '',
+        }))
+        return
+      }
+
+      dismissInAppBanner(getInAppBannerId('call', callId))
+
+      if (currentCallId === callId && ['active', 'joining'].includes(currentPhase)) {
+        setMobileCallState((prev) => ({
+          ...prev,
+          visible: true,
+          call,
+          phase: currentPhase === 'joining' ? 'joining' : 'active',
+          error: '',
+        }))
+        return
+      }
+
+      const attendeeResponse = await callApi.getAttendee(callId)
+      pendingMobileJoinInfoRef.current = attendeeResponse?.data || null
+      await joinMobileCall(attendeeResponse?.data)
+    } catch (error) {
+      console.warn('Failed to reconcile mobile call state:', error?.message || error)
+    }
+  }, [authenticated, dismissInAppBanner, joinMobileCall, resetMobileCall, upsertInAppBanner, user])
+
   const declineMobileCall = useCallback(async (targetCall = null) => {
     const call = normalizeId(targetCall?.callId) ? targetCall : mobileCallStateRef.current?.call
     const callId = normalizeId(call?.callId)
@@ -2081,8 +2294,18 @@ export default function AppRoot() {
 
   const toggleMobileCamera = useCallback(async () => {
     const nextEnabled = !mobileCallStateRef.current?.isCameraEnabled
-    await setMobileChimeCameraEnabled(nextEnabled).catch(() => {})
-    setMobileCallState((prev) => ({ ...prev, isCameraEnabled: nextEnabled }))
+    try {
+      if (nextEnabled) {
+        await ensureCallMediaPermissions({ audio: false, video: true })
+      }
+      await setMobileChimeCameraEnabled(nextEnabled).catch(() => {})
+      setMobileCallState((prev) => ({ ...prev, isCameraEnabled: nextEnabled, error: '' }))
+    } catch (error) {
+      setMobileCallState((prev) => ({
+        ...prev,
+        error: error?.message || 'Không thể bật camera trên thiết bị này',
+      }))
+    }
   }, [])
 
   const switchMobileCamera = useCallback(async () => {
@@ -2099,17 +2322,32 @@ export default function AppRoot() {
     const subscriptions = [
       addMobileChimeEventListener(MOBILE_CHIME_EVENTS.VIDEO_TILE_ADDED, (tile) => {
         setMobileCallState((prev) => {
-          const tileId = normalizeId(tile?.tileId)
-          if (!tileId) return prev
-          const withoutExisting = (prev.videoTiles || []).filter((item) => normalizeId(item?.tileId) !== tileId)
+          const tileKey = normalizeId(tile?.tileId)
+          const nativeTileId = Number(tile?.tileId)
+          if (!tileKey) return prev
+          logRealtimeDiagnostic('call:video_tile_added', {
+            tileId: tileKey,
+            isLocal: Boolean(tile?.isLocal),
+            attendeeId: normalizeId(tile?.attendeeId),
+            paused: Boolean(tile?.paused),
+          })
+          const withoutExisting = (prev.videoTiles || []).filter((item) => normalizeId(item?.tileId) !== tileKey)
+          // For local tiles, the JS isCameraEnabled flag is the source of truth
+          // for whether the tile should render. The native pauseState can be
+          // transiently stale during session initialization.
+          const isLocalTile = Boolean(tile?.isLocal)
+          const effectivePaused = isLocalTile
+            ? !prev.isCameraEnabled
+            : Boolean(tile?.paused)
           return {
             ...prev,
             videoTiles: [
               ...withoutExisting,
               {
                 ...tile,
-                tileId,
+                tileId: Number.isFinite(nativeTileId) ? nativeTileId : tileKey,
                 hasVideo: tile?.hasVideo !== false,
+                paused: effectivePaused,
               },
             ],
           }
@@ -2118,6 +2356,11 @@ export default function AppRoot() {
       addMobileChimeEventListener(MOBILE_CHIME_EVENTS.VIDEO_TILE_REMOVED, (tile) => {
         const tileId = normalizeId(tile?.tileId)
         if (!tileId) return
+        logRealtimeDiagnostic('call:video_tile_removed', {
+          tileId,
+          isLocal: Boolean(tile?.isLocal),
+          attendeeId: normalizeId(tile?.attendeeId),
+        })
         setMobileCallState((prev) => ({
           ...prev,
           videoTiles: (prev.videoTiles || []).filter((item) => normalizeId(item?.tileId) !== tileId),
@@ -2149,37 +2392,18 @@ export default function AppRoot() {
           error: payload?.message || 'Cuộc gọi gặp lỗi media',
         }))
       }),
+      addMobileChimeEventListener(MOBILE_CHIME_EVENTS.MEETING_STARTED, () => {
+        const state = mobileCallStateRef.current
+        if (state?.isCameraEnabled) {
+          setMobileChimeCameraEnabled(true).catch(() => {})
+        }
+      }),
     ]
 
     return () => {
       subscriptions.forEach((subscription) => subscription?.remove?.())
     }
   }, [resetMobileCall])
-
-  useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        const [cached, cachedPreferences] = await Promise.all([
-          storage.getAuth(),
-          storage.getConversationPreferences(),
-        ])
-        if (cached?.accessToken && cached?.user) {
-          setInMemoryAuth(cached)
-          setUser(cached.user)
-          setAccessToken(cached.accessToken)
-          setRefreshToken(cached.refreshToken || '')
-        }
-
-        if (cachedPreferences && typeof cachedPreferences === 'object') {
-          setConversationPreferences(cachedPreferences)
-        }
-      } finally {
-        setBooting(false)
-      }
-    }
-
-    bootstrap()
-  }, [])
 
   useEffect(() => {
     conversationsRef.current = Array.isArray(conversations) ? conversations : []
@@ -2230,7 +2454,7 @@ export default function AppRoot() {
       openConversation(matchedConversation || { _id: conversationId, conversationId })
         .then((opened) => {
           if (opened) {
-            navigationRef.current?.navigate?.('Chat')
+            navigationRef.current?.navigate?.(ROUTES.CHAT)
           }
         })
         .catch((error) => {
@@ -2252,7 +2476,29 @@ export default function AppRoot() {
     const socket = connectSocket(accessToken)
     if (!socket) return
 
-    registerForPushNotificationsAsync()
+    const applyPresenceUpdate = (payload = {}, onlineOverride = null) => {
+      const profile = payload?.user || payload?.profile || {}
+      const targetUserId = normalizeId(payload?.userId || profile?._id || profile?.userId || profile?.id)
+      if (!targetUserId) return
+
+      const status = String(payload?.status || profile?.status || '').toLowerCase()
+      const isOnline = onlineOverride ?? (status ? ['online', 'active'].includes(status) : Boolean(payload?.isOnline || profile?.isOnline))
+      const receivedLastSeen =
+        payload?.lastSeen ||
+        payload?.lastSeenAt ||
+        profile?.lastSeen ||
+        profile?.lastSeenAt ||
+        null
+      const lastSeen = isOnline ? receivedLastSeen : (receivedLastSeen || Date.now())
+
+      updateParticipantPresence(targetUserId, {
+        ...profile,
+        isOnline,
+        ...(lastSeen ? { lastSeen, lastSeenAt: lastSeen } : {}),
+      })
+    }
+
+    registerForPushNotificationsAsync({ requestIfNeeded: true })
       .then((token) => {
         if (!token || pushTokenRef.current === token) return null
         pushTokenRef.current = token
@@ -2273,6 +2519,12 @@ export default function AppRoot() {
       if (!conversationId) return
       const currentUserId = normalizeId(user?._id || user?.userId)
       const senderId = normalizeId(message?.senderId)
+      logRealtimeDiagnostic('message', {
+        conversationId,
+        messageId: normalizeId(message?._id || message?.messageId || message?.clientMessageId),
+        senderId,
+        isCurrentConversation,
+      })
 
       if (isCurrentConversation) {
         setMessages((prev) => {
@@ -2315,7 +2567,6 @@ export default function AppRoot() {
           }).catch((error) => {
             console.warn('Cannot show message notification:', error?.message || error)
           })
-<<<<<<< HEAD
 
           upsertInAppBanner({
             id: getInAppBannerId('message', messageId || conversationId),
@@ -2337,8 +2588,6 @@ export default function AppRoot() {
             persistent: false,
             expiresAt: Date.now() + 5000,
           })
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
         }
       }
 
@@ -2463,6 +2712,13 @@ export default function AppRoot() {
         : []
       const callerId = normalizeId(call?.callerId)
       const status = String(call?.status || '').toLowerCase()
+      logRealtimeDiagnostic('call:incoming', {
+        callId,
+        conversationId,
+        callerId,
+        status,
+        participantCount: participantIds.length,
+      })
       if (!callId || !conversationId || status !== 'ringing') return
       if (callerId === currentUserId || !participantIds.includes(currentUserId)) return
 
@@ -2501,7 +2757,29 @@ export default function AppRoot() {
         })
       }
 
-<<<<<<< HEAD
+      dismissInAppBanner(getInAppBannerId('call', callId))
+    }
+
+    const activeAvailableCallHandler = (payload) => {
+      const call = payload?.call || payload
+      const callId = normalizeId(call?.callId)
+      const conversationId = normalizeId(call?.conversationId)
+      const currentUserId = normalizeId(user?._id || user?.userId)
+      const status = String(call?.status || '').toLowerCase()
+      const viewerState = String(call?.viewerCallState || '').toLowerCase()
+      if (!callId || !conversationId || status !== 'accepted' || viewerState !== 'available') return
+
+      const currentCallId = normalizeId(mobileCallStateRef.current?.call?.callId)
+      const currentPhase = String(mobileCallStateRef.current?.phase || 'idle').toLowerCase()
+      if (currentCallId === callId && ['active', 'joining'].includes(currentPhase)) return
+
+      const matchedConversation = conversationsRef.current.find((conversation) => {
+        const id = normalizeId(conversation?._id || conversation?.conversationId)
+        return id === conversationId
+      })
+      const preference = conversationPreferencesRef.current?.[conversationId] || {}
+      if (preference?.muted) return
+
       upsertInAppBanner({
         id: getInAppBannerId('call', callId),
         type: 'call',
@@ -2510,53 +2788,16 @@ export default function AppRoot() {
           conversation: matchedConversation || { _id: conversationId, conversationId },
           currentUserId,
         }),
-        body: `Cuộc gọi ${String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'} đến`,
+        body: 'Cuộc gọi nhóm đang diễn ra. Nhấn để tham gia.',
         data: {
           type: 'call',
+          action: 'join',
           callId,
           conversationId,
           call,
         },
         persistent: true,
       })
-
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
-      if (!incomingCallDialogIdsRef.current.has(callId)) {
-        incomingCallDialogIdsRef.current.add(callId)
-        const callType = String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'
-        showAppDialog({
-          title: 'Cuộc gọi đến',
-          message: `Bạn có cuộc gọi ${callType} đến.`,
-          actions: [
-            {
-              text: 'Nghe máy',
-              style: 'default',
-              onPress: () => {
-                setMobileCallState((prev) => ({
-                  ...prev,
-                  visible: true,
-                  call,
-                  phase: 'incoming',
-                  error: '',
-                }))
-                acceptMobileCall(call).catch((error) => {
-                  console.warn('Cannot accept call:', error?.message || error)
-                })
-              },
-            },
-            {
-              text: 'Từ chối',
-              style: 'destructive',
-              onPress: () => {
-                declineMobileCall(call).catch((error) => {
-                  console.warn('Cannot decline call:', error?.message || error)
-                })
-              },
-            },
-          ],
-        })
-      }
     }
 
     const clearIncomingCallHandler = (payload) => {
@@ -2564,11 +2805,7 @@ export default function AppRoot() {
       const callId = normalizeId(call?.callId)
       if (!callId) return
       incomingCallNotificationIdsRef.current.delete(callId)
-      incomingCallDialogIdsRef.current.delete(callId)
-<<<<<<< HEAD
       dismissInAppBanner(getInAppBannerId('call', callId))
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
     }
 
     const ringingCallHandler = (payload) => {
@@ -2595,12 +2832,7 @@ export default function AppRoot() {
       const callId = normalizeId(call?.callId)
       if (!callId) return
 
-<<<<<<< HEAD
       clearIncomingCallHandler(payload)
-=======
-      incomingCallNotificationIdsRef.current.delete(callId)
-      incomingCallDialogIdsRef.current.delete(callId)
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
 
       const currentCallId = normalizeId(mobileCallStateRef.current?.call?.callId)
       const phase = mobileCallStateRef.current?.phase
@@ -2625,7 +2857,7 @@ export default function AppRoot() {
             ...prev,
             visible: true,
             call,
-            error: getRequestErrorMessage(error, 'Không thể join cuộc gọi'),
+            error: getRequestErrorMessage(error, 'Không thể tham gia cuộc gọi'),
           }))
         })
     }
@@ -2652,6 +2884,30 @@ export default function AppRoot() {
           ...call,
         },
       }))
+    }
+
+    const reconnectHandler = () => {
+      const activeConversationId = normalizeId(activeConversationIdRef.current)
+      if (activeConversationId) {
+        joinConversationRoom(activeConversationId).catch(() => {})
+        const activeConversation = conversationsRef.current.find((conversation) => {
+          const id = normalizeId(conversation?._id || conversation?.conversationId)
+          return id === activeConversationId
+        }) || { _id: activeConversationId, conversationId: activeConversationId }
+
+        openConversation(activeConversation).catch((error) => {
+          console.warn('Failed to refresh active conversation after socket connect:', error?.message || error)
+        })
+      } else {
+        loadConversations()
+          .catch((error) => {
+            console.warn('Failed to refresh conversations after socket connect:', error?.message || error)
+          })
+      }
+
+      reconcileMobileCallState().catch((error) => {
+        console.warn('Failed to recover mobile call after reconnect:', error?.message || error)
+      })
     }
 
     const participantRoleUpdatedHandler = async (payload) => {
@@ -2694,12 +2950,18 @@ export default function AppRoot() {
       // Frontend/mobile will receive it via message stream and keep it after reload.
     }
 
+    const userOnlineHandler = (payload) => applyPresenceUpdate(payload, true)
+    const userOfflineHandler = (payload) => applyPresenceUpdate(payload, false)
+    const userPresenceHandler = (payload) => applyPresenceUpdate(payload)
+
     socket.on('message:received', incomingHandler)
+    socket.on('message:sent', incomingHandler)
     socket.on('message:edited', editedHandler)
     socket.on('message:deleted', deletedHandler)
     socket.on('message:emoji', emojiHandler)
     socket.on('message:hidden', hiddenHandler)
     socket.on('call:incoming', incomingCallHandler)
+    socket.on('call:active_available', activeAvailableCallHandler)
     socket.on('call:ringing', ringingCallHandler)
     socket.on('call:accepted', acceptedCallHandler)
     socket.on('call:participant_joined', participantCallHandler)
@@ -2708,15 +2970,24 @@ export default function AppRoot() {
     socket.on('call:ended', terminalCallHandler)
     socket.on('call:missed', terminalCallHandler)
     socket.on('participant:role_updated', participantRoleUpdatedHandler)
+    socket.on('user:online', userOnlineHandler)
+    socket.on('user:offline', userOfflineHandler)
+    socket.on('user:presence', userPresenceHandler)
+    socket.on('connect', reconnectHandler)
+    if (socket.connected) {
+      reconnectHandler()
+    }
     loadConversations()
 
     return () => {
       socket.off('message:received', incomingHandler)
+      socket.off('message:sent', incomingHandler)
       socket.off('message:edited', editedHandler)
       socket.off('message:deleted', deletedHandler)
       socket.off('message:emoji', emojiHandler)
       socket.off('message:hidden', hiddenHandler)
       socket.off('call:incoming', incomingCallHandler)
+      socket.off('call:active_available', activeAvailableCallHandler)
       socket.off('call:ringing', ringingCallHandler)
       socket.off('call:accepted', acceptedCallHandler)
       socket.off('call:participant_joined', participantCallHandler)
@@ -2725,6 +2996,10 @@ export default function AppRoot() {
       socket.off('call:ended', terminalCallHandler)
       socket.off('call:missed', terminalCallHandler)
       socket.off('participant:role_updated', participantRoleUpdatedHandler)
+      socket.off('user:online', userOnlineHandler)
+      socket.off('user:offline', userOfflineHandler)
+      socket.off('user:presence', userPresenceHandler)
+      socket.off('connect', reconnectHandler)
       stopTypingStartListener()
       stopTypingStopListener()
     }
@@ -2736,18 +3011,13 @@ export default function AppRoot() {
     loadConversations,
     openConversation,
     acceptMobileCall,
-<<<<<<< HEAD
     dismissInAppBanner,
     joinMobileCall,
+    reconcileMobileCallState,
     resetMobileCall,
-    showAppDialog,
     upsertInAppBanner,
-=======
-    joinMobileCall,
-    resetMobileCall,
-    showAppDialog,
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
     upsertConversation,
+    updateParticipantPresence,
   ])
 
   useEffect(() => {
@@ -2757,6 +3027,14 @@ export default function AppRoot() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!authenticated) return
+
+    reconcileMobileCallState().catch((error) => {
+      console.warn('Failed to hydrate mobile call state:', error?.message || error)
+    })
+  }, [authenticated, reconcileMobileCallState])
 
   useEffect(() => {
     storage.setConversationPreferences(conversationPreferences).catch(() => {})
@@ -2900,7 +3178,20 @@ export default function AppRoot() {
   }, [typingUserIdsForCurrentConversation, currentConversation, user])
 
   if (booting) {
-    return null
+    if (!bootHasCachedAuth) {
+      return null
+    }
+
+    return <AppLoadingScreen statusMessage="Đang khôi phục phiên đăng nhập..." />
+  }
+
+  if (authenticated && (!initialDataLoaded || !minLoadingDone || !progressBarFinished)) {
+    return (
+      <AppLoadingScreen
+        statusMessage={initialDataLoaded ? 'Sắp hoàn tất...' : 'Đang tải dữ liệu...'}
+        isDataLoaded={initialDataLoaded}
+      />
+    )
   }
 
   return (
@@ -2910,371 +3201,82 @@ export default function AppRoot() {
           <UiProvider>
             <SocketProvider>
               <DialogProvider>
-                <NavigationContainer ref={navigationRef}>
-            <StatusBar barStyle={appTheme.isDark ? 'light-content' : 'dark-content'} />
-      <Stack.Navigator
-        initialRouteName={authenticated ? 'Conversations' : 'Login'}
-        screenOptions={{
-          headerTitleAlign: 'center',
-          animation: 'slide_from_right',
-        }}
-      >
-        {!authenticated ? (
-          <>
-            <Stack.Screen name="Login" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <AuthScreen
-                  onLogin={async (email, password) => {
-                    const success = await handleLogin(email, password)
-                    if (success) {
-                      navigation.reset({ index: 0, routes: [{ name: 'Conversations' }] })
-                    }
-                  }}
-                  onSwitchToRegister={() => navigation.navigate('Register')}
-                  onSwitchToForgot={() => navigation.navigate('ForgotPassword')}
-                  loading={authLoading}
-                  error={authError}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="ForgotPassword" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <ForgotPasswordScreen
-                  loading={authLoading}
-                  error={authError}
-                  onRequestReset={requestForgotPassword}
-                  onVerifyToken={verifyForgotToken}
-                  onResetPassword={resetForgotPassword}
-                  onSwitchToLogin={() => navigation.goBack()}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Register" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <RegisterScreen
-                  loading={authLoading}
-                  error={authError}
-                  onSubmit={async (payload) => {
-                    const result = await handleRegister(payload)
-                    if (result.ok) {
-                      navigation.navigate('VerifyOTP')
-                    }
-                  }}
-                  onSwitchToLogin={() => navigation.goBack()}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="VerifyOTP" options={{ title: 'Xác thực OTP' }}>
-              {({ navigation }) => (
-                <VerifyOtpScreen
-                  email={pendingVerificationEmail}
-                  loading={authLoading}
-                  error={authError}
-                  onVerify={async (otp) => {
-                    const success = await verifyOtp(otp)
-                    if (success) {
-                      navigation.reset({ index: 0, routes: [{ name: 'Conversations' }] })
-                    }
-                  }}
-                  onResend={resendOtp}
-                  onBackToLogin={() => {
-                    setPendingVerificationEmail('')
-                    navigation.popToTop()
-                  }}
-                />
-              )}
-            </Stack.Screen>
-          </>
-        ) : (
-          <>
-            <Stack.Screen name="Conversations" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <ConversationListScreen
+                <RootNavigator
+                  navigationRef={navigationRef}
+                  authenticated={authenticated}
+                  authLoading={authLoading}
+                  authError={authError}
+                  pendingVerificationEmail={pendingVerificationEmail}
+                  setPendingVerificationEmail={setPendingVerificationEmail}
+                  handleLogin={handleLogin}
+                  requestForgotPassword={requestForgotPassword}
+                  verifyForgotToken={verifyForgotToken}
+                  resetForgotPassword={resetForgotPassword}
+                  handleRegister={handleRegister}
+                  verifyOtp={verifyOtp}
+                  resendOtp={resendOtp}
                   user={user}
-                  conversations={visibleConversations}
+                  visibleConversations={visibleConversations}
                   unreadByConversation={unreadByConversation}
-                  loading={loadingConversations}
-                  friendRequestCount={0}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onOpenDiscover={() => navigation.navigate('Discover')}
-                  onOpenDiary={() => navigation.navigate('Diary')}
-                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
-                  onOpenCalls={() => navigation.navigate('Calls')}
-                  onOpenAssistant={() => navigation.navigate('Assistant')}
-                  onOpenCreateGroup={() => navigation.navigate('CreateGroup')}
-                  onStartConversation={async (targetUserId) => {
-                    const opened = await startConversationWithUser(targetUserId)
-                    if (opened) {
-                      navigation.navigate('Chat')
-                    }
-                  }}
-                  onOpenConversation={async (conversation) => {
-                    const opened = await openConversation(conversation)
-                    if (opened) {
-                      navigation.navigate('Chat')
-                    }
-                  }}
-                  onRefresh={loadConversations}
-                  onLogout={async () => {
-                    await handleLogout()
-                    navigation.reset({ index: 0, routes: [{ name: 'Login' }] })
-                  }}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Calls" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <CallsScreen
-                  onOpenChats={() => navigation.navigate('Conversations')}
-                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
-                  onOpenAssistant={() => navigation.navigate('Assistant')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Assistant" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <AssistantScreen
-                  onOpenChats={() => navigation.navigate('Conversations')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-<<<<<<< HEAD
-                  onOpenProfileLocation={() => openProfileLocationPicker(navigation)}
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
-                  friendRequestCount={0}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="FriendHub" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <FriendHubScreen
-                  currentUserId={user?._id || user?.userId}
-                  onBack={() => navigation.goBack()}
-                  onOpenConversations={() => navigation.navigate('Conversations')}
-                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
-                  onOpenAssistant={() => navigation.navigate('Assistant')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                  onOpenCreateGroup={() => navigation.navigate('CreateGroup')}
-                  onStartConversation={async (targetUserId) => {
-                    const opened = await startConversationWithUser(targetUserId)
-                    if (opened) {
-                      navigation.navigate('Chat')
-                    }
-                  }}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Discover" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <DiscoverScreen
-                  currentUserId={user?._id || user?.userId}
-                  onBack={() => navigation.goBack()}
-                  onOpenConversations={() => navigation.navigate('Conversations')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onStartConversation={async (targetUserId) => {
-                    const opened = await startConversationWithUser(targetUserId)
-                    if (opened) {
-                      navigation.navigate('Chat')
-                    }
-                  }}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Diary" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <DiaryScreen
-                  onBack={() => navigation.goBack()}
-                  onOpenConversations={() => navigation.navigate('Conversations')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onOpenDiscover={() => navigation.navigate('Discover')}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="UrbanIncidents" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <UrbanIncidentScreen
-                  onBack={() => navigation.goBack()}
-                  onOpenChats={() => navigation.navigate('Conversations')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onOpenAssistant={() => navigation.navigate('Assistant')}
-                  onOpenProfile={() => navigation.navigate('Profile')}
-                  friendRequestCount={0}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="CreateGroup" options={{ title: 'Tạo nhóm' }}>
-              {({ navigation }) => (
-                <CreateGroupScreen
-                  currentUserId={user?._id || user?.userId}
-                  onBack={() => navigation.goBack()}
-                  onShowDialog={showAppDialog}
-                  onCreateGroup={async (participantIds, groupName) => {
-                    const result = await createGroupConversation(participantIds, groupName)
-                    if (result?.opened) {
-                      navigation.replace('Chat')
-                    }
-
-                    return result
-                  }}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen name="Profile" options={{ headerShown: false }}>
-              {({ navigation }) => (
-                <ProfileScreen
-                  user={user}
-                  loading={authLoading}
-                  error={authError}
-<<<<<<< HEAD
-                  openLocationPickerToken={profileLocationPromptToken}
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
-                  onBack={() => navigation.goBack()}
-                  onUpdateAvatar={updateAvatar}
-                  onUpdateProfile={updateProfile}
-                  onChangePassword={updatePassword}
-                  onOpenConversations={() => navigation.navigate('Conversations')}
-                  onOpenCalls={() => navigation.navigate('Calls')}
-                  onOpenUrban={() => navigation.navigate('UrbanIncidents')}
-                  onOpenAssistant={() => navigation.navigate('Assistant')}
-                  onOpenFriends={() => navigation.navigate('FriendHub')}
-                  onOpenDiscover={() => navigation.navigate('Discover')}
-                  onOpenDiary={() => navigation.navigate('Diary')}
-                  onLogout={async () => {
-                    await handleLogout()
-                    navigation.reset({ index: 0, routes: [{ name: 'Login' }] })
-                  }}
-                />
-              )}
-            </Stack.Screen>
-
-            <Stack.Screen
-              name="Chat"
-              options={{
-                headerShown: false,
-              }}
-            >
-              {({ navigation }) => (
-                <ChatScreen
-                  conversation={currentConversation}
-                  conversations={visibleConversations}
+                  loadingConversations={loadingConversations}
+                  startConversationWithUser={startConversationWithUser}
+                  openConversation={openConversation}
+                  loadConversations={loadConversations}
+                  handleLogout={handleLogout}
+                  openProfileLocationPicker={openProfileLocationPicker}
+                  showAppDialog={showAppDialog}
+                  createGroupConversation={createGroupConversation}
+                  profileLocationPromptToken={profileLocationPromptToken}
+                  updateAvatar={updateAvatar}
+                  updateProfile={updateProfile}
+                  updatePassword={updatePassword}
+                  currentConversation={currentConversation}
                   messages={messages}
                   loadingOlderMessages={loadingOlderMessages}
-                  hasMoreOlderMessages={hasMoreMessages}
-                  onLoadOlderMessages={loadOlderMessages}
-                  scrollRequestKey={chatScrollRequestKey}
-                  currentUserId={user?._id || user?.userId}
-                  loading={loadingMessages}
-                  onBack={async () => {
-                    await closeConversation()
-                    navigation.goBack()
-                  }}
-                  onRenameGroup={renameCurrentGroup}
-                  onUpdateGroupAvatar={updateCurrentGroupAvatar}
-                  onAddGroupMember={addMemberToCurrentGroup}
-                  onRemoveGroupMember={removeMemberFromCurrentGroup}
-                  onUpdateParticipantRole={updateCurrentParticipantRole}
-                  onSearchUsers={searchUsersForGroupMember}
-                  onUpdateGroupSettings={updateCurrentGroupSettings}
-                  onShowDialog={showAppDialog}
-                  onSend={sendTextMessage}
-                  onPickImage={pickImageAndSend}
-                  onPickFile={pickFileAndSend}
-                  onEditMessage={editCurrentMessage}
-                  onDeleteMessage={deleteCurrentMessage}
-                  onDeleteMessageForAll={deleteMessageForAll}
-                  onReactMessage={toggleMessageReaction}
-                  onForwardMessage={forwardMessageToConversations}
-                  onTypingStart={handleStartTyping}
-                  onTypingStop={handleStopTyping}
-                  typingUsers={typingUsersForCurrentConversation}
-                  preference={currentConversationPreference}
-                  onUpdateConversationPreference={(patch) =>
-                    updateConversationPreference(activeConversationIdRef.current, patch)
-                  }
-                  onDeleteConversation={deleteCurrentConversation}
-                  onRefreshConversationData={refreshCurrentConversationData}
-                  onStartCall={startMobileCall}
+                  hasMoreMessages={hasMoreMessages}
+                  loadOlderMessages={loadOlderMessages}
+                  chatScrollRequestKey={chatScrollRequestKey}
+                  loadingMessages={loadingMessages}
+                  closeConversation={closeConversation}
+                  renameCurrentGroup={renameCurrentGroup}
+                  updateCurrentGroupAvatar={updateCurrentGroupAvatar}
+                  addMemberToCurrentGroup={addMemberToCurrentGroup}
+                  removeMemberFromCurrentGroup={removeMemberFromCurrentGroup}
+                  updateCurrentParticipantRole={updateCurrentParticipantRole}
+                  searchUsersForGroupMember={searchUsersForGroupMember}
+                  updateCurrentGroupSettings={updateCurrentGroupSettings}
+                  sendTextMessage={sendTextMessage}
+                  pickImageAndSend={pickImageAndSend}
+                  pickFileAndSend={pickFileAndSend}
+                  editCurrentMessage={editCurrentMessage}
+                  deleteCurrentMessage={deleteCurrentMessage}
+                  deleteMessageForAll={deleteMessageForAll}
+                  toggleMessageReaction={toggleMessageReaction}
+                  forwardMessageToConversations={forwardMessageToConversations}
+                  handleStartTyping={handleStartTyping}
+                  handleStopTyping={handleStopTyping}
+                  typingUsersForCurrentConversation={typingUsersForCurrentConversation}
+                  currentConversationPreference={currentConversationPreference}
+                  updateConversationPreference={updateConversationPreference}
+                  activeConversationIdRef={activeConversationIdRef}
+                  deleteCurrentConversation={deleteCurrentConversation}
+                  refreshCurrentConversationData={refreshCurrentConversationData}
+                  startMobileCall={startMobileCall}
+                  joinAvailableMobileCall={joinAvailableMobileCall}
+                  inAppBanners={inAppBanners}
+                  dismissInAppBanner={dismissInAppBanner}
+                  openConversationFromBanner={openConversationFromBanner}
+                  acceptMobileCall={acceptMobileCall}
+                  declineMobileCall={declineMobileCall}
+                  mobileCallState={mobileCallState}
+                  endMobileCall={endMobileCall}
+                  toggleMobileMute={toggleMobileMute}
+                  toggleMobileCamera={toggleMobileCamera}
+                  switchMobileCamera={switchMobileCamera}
+                  selectMobileAudioRoute={selectMobileAudioRoute}
+                  appDialog={appDialog}
+                  closeAppDialog={closeAppDialog}
                 />
-              )}
-            </Stack.Screen>
-          </>
-        )}
-      </Stack.Navigator>
-<<<<<<< HEAD
-      <MobileInAppBannerHost
-        banners={inAppBanners}
-        onDismiss={dismissInAppBanner}
-        onOpenBanner={(banner) => {
-          if (banner?.type === 'call') {
-            openConversationFromBanner(banner?.data?.conversationId).catch(() => {})
-            return
-          }
-
-          openConversationFromBanner(banner?.data?.conversationId)
-            .then((opened) => {
-              if (opened) {
-                dismissInAppBanner(banner?.id)
-              }
-            })
-            .catch(() => {})
-        }}
-        onAcceptCall={(banner) => {
-          openConversationFromBanner(banner?.data?.conversationId).catch(() => {})
-          acceptMobileCall(banner?.data?.call || null).catch(() => {})
-          dismissInAppBanner(banner?.id)
-        }}
-        onDeclineCall={(banner) => {
-          declineMobileCall(banner?.data?.call || null).catch(() => {})
-          dismissInAppBanner(banner?.id)
-        }}
-      />
-=======
->>>>>>> db60783c03601ac02358744473479e212cf7b40c
-      <MobileCallOverlay
-        visible={mobileCallState.visible}
-        call={mobileCallState.call}
-        phase={mobileCallState.phase}
-        error={mobileCallState.error}
-        isMuted={mobileCallState.isMuted}
-        isCameraEnabled={mobileCallState.isCameraEnabled}
-        videoTiles={mobileCallState.videoTiles}
-        activeSpeakerId={mobileCallState.activeSpeakerId}
-        audioRoute={mobileCallState.audioRoute}
-        availableAudioRoutes={mobileCallState.availableAudioRoutes}
-        onAccept={() => acceptMobileCall()}
-        onDecline={() => declineMobileCall()}
-        onEnd={endMobileCall}
-        onToggleMute={toggleMobileMute}
-        onToggleCamera={toggleMobileCamera}
-        onSwitchCamera={switchMobileCamera}
-        onSelectAudioRoute={selectMobileAudioRoute}
-      />
-      <AppDialogModal
-        visible={appDialog.visible}
-        title={appDialog.title}
-        message={appDialog.message}
-        actions={appDialog.actions}
-        onClose={closeAppDialog}
-      />
-      <ExpoStatusBar style={appTheme.isDark ? 'light' : 'dark'} />
-    </NavigationContainer>
               </DialogProvider>
             </SocketProvider>
           </UiProvider>

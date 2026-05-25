@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Button, Card, Input, MobileBottomTabBar, Screen } from './ui'
 import { useAppTheme } from '../theme'
 import { assistantService } from '../services/api'
@@ -63,6 +64,7 @@ const buildAssistantLocation = (user = {}) => {
 export default function AssistantScreen({ onOpenChats, onOpenFriends, onOpenUrban, onOpenProfile, onOpenProfileLocation, friendRequestCount = 0 }) {
   const user = useAuthStore((state) => state.user)
   const theme = useAppTheme()
+  const insets = useSafeAreaInsets()
   const c = theme.colors
   const styles = createStyles(theme)
   const [text, setText] = useState('')
@@ -71,6 +73,9 @@ export default function AssistantScreen({ onOpenChats, onOpenFriends, onOpenUrba
   const [loadingSuggestions, setLoadingSuggestions] = useState(true)
   const [suggestions, setSuggestions] = useState(fallbackSuggestions)
   const [errorMessage, setErrorMessage] = useState('')
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
+  const bottomTabHeight = 64 + Math.max(insets.bottom, 8)
+  const composerBottomSpace = keyboardVisible ? Math.max(insets.bottom, 8) : bottomTabHeight
 
   useEffect(() => {
     let active = true
@@ -98,6 +103,16 @@ export default function AssistantScreen({ onOpenChats, onOpenFriends, onOpenUrba
 
     return () => {
       active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true))
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false))
+
+    return () => {
+      showSubscription.remove()
+      hideSubscription.remove()
     }
   }, [])
 
@@ -155,93 +170,102 @@ export default function AssistantScreen({ onOpenChats, onOpenFriends, onOpenUrba
 
   return (
     <Screen style={styles.container}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Card style={styles.header}>
-          <View style={styles.aiIcon}>
-            <MaterialCommunityIcons name="robot-outline" style={styles.aiIconText} />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={[styles.content, { paddingBottom: composerBottomSpace }]}>
+          <Card style={styles.header}>
+            <View style={styles.aiIcon}>
+              <MaterialCommunityIcons name="robot-outline" style={styles.aiIconText} />
+            </View>
+            <View style={styles.headerCopy}>
+              <Text style={styles.eyebrow}>Trợ lý thành phố</Text>
+              <Text style={styles.title}>Trợ lý đô thị</Text>
+              <Text style={styles.subtitle}>Hỏi nhanh về giao thông, hạ tầng và cảnh báo khu vực từ dữ liệu cộng đồng.</Text>
+            </View>
+          </Card>
+
+          {messages.length === 0 ? (
+            <View style={styles.welcome}>
+              {(loadingSuggestions ? fallbackSuggestions : suggestions).map((item) => (
+                <Pressable key={item} style={styles.suggestion} onPress={() => ask(item)}>
+                  <Text style={styles.suggestionText}>{item}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <FlatList
+              style={styles.threadList}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.thread}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+                  <Text style={[styles.bubbleText, item.role === 'user' && styles.userBubbleText]}>{item.content}</Text>
+
+                  {!!item.disclaimer && item.role === 'assistant' ? (
+                    <Text style={styles.disclaimerText}>{item.disclaimer}</Text>
+                  ) : null}
+
+                  {item.showIncidentCards && Array.isArray(item.relatedPosts) && item.relatedPosts.length > 0 ? (
+                    <View style={styles.relatedWrap}>
+                      {item.relatedPosts.map((post) => (
+                        <Pressable key={post.postId || post.title} style={styles.relatedCard} onPress={openUrbanAction}>
+                          <Text style={styles.relatedTitle}>{post.title}</Text>
+                          <Text style={styles.relatedMeta}>{post.status} · {post.location}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {Array.isArray(item.actions) && item.actions.length > 0 ? (
+                    <View style={styles.actionsRow}>
+                      {item.actions.slice(0, 3).map((action) => (
+                        <Button
+                          key={`${action.kind}-${action.target}`}
+                          variant="ghost"
+                          size="sm"
+                          style={styles.actionButton}
+                          textStyle={styles.actionButtonText}
+                          onPress={() => handleActionPress(action)}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              )}
+              ListFooterComponent={
+                <>
+                  {loading ? <Text style={styles.loadingText}>Trợ lý đang phân tích dữ liệu đô thị...</Text> : null}
+                  {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+                </>
+              }
+            />
+          )}
+
+          <View style={styles.composer}>
+            <Input
+              value={text}
+              onChangeText={setText}
+              placeholder="Nhập câu hỏi..."
+              style={styles.input}
+            />
+            <Button onPress={() => ask()} disabled={!text.trim() || loading} loading={loading}>Gửi</Button>
           </View>
-          <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>Smart City Assistant</Text>
-            <Text style={styles.title}>Trợ lý đô thị</Text>
-            <Text style={styles.subtitle}>Hỏi nhanh về giao thông, hạ tầng và cảnh báo khu vực từ dữ liệu cộng đồng.</Text>
-          </View>
-        </Card>
-
-        {messages.length === 0 ? (
-          <View style={styles.welcome}>
-            {(loadingSuggestions ? fallbackSuggestions : suggestions).map((item) => (
-              <Pressable key={item} style={styles.suggestion} onPress={() => ask(item)}>
-                <Text style={styles.suggestionText}>{item}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : (
-          <FlatList
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.thread}
-            renderItem={({ item }) => (
-              <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-                <Text style={[styles.bubbleText, item.role === 'user' && styles.userBubbleText]}>{item.content}</Text>
-
-                {!!item.disclaimer && item.role === 'assistant' ? (
-                  <Text style={styles.disclaimerText}>{item.disclaimer}</Text>
-                ) : null}
-
-                {item.showIncidentCards && Array.isArray(item.relatedPosts) && item.relatedPosts.length > 0 ? (
-                  <View style={styles.relatedWrap}>
-                    {item.relatedPosts.map((post) => (
-                      <Pressable key={post.postId || post.title} style={styles.relatedCard} onPress={openUrbanAction}>
-                        <Text style={styles.relatedTitle}>{post.title}</Text>
-                        <Text style={styles.relatedMeta}>{post.status} · {post.location}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-
-                {Array.isArray(item.actions) && item.actions.length > 0 ? (
-                  <View style={styles.actionsRow}>
-                    {item.actions.slice(0, 3).map((action) => (
-                      <Button
-                        key={`${action.kind}-${action.target}`}
-                        variant="ghost"
-                        size="sm"
-                        style={styles.actionButton}
-                        textStyle={styles.actionButtonText}
-                        onPress={() => handleActionPress(action)}
-                      >
-                        {action.label}
-                      </Button>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            )}
-            ListFooterComponent={
-              <>
-                {loading ? <Text style={styles.loadingText}>Assistant đang phân tích dữ liệu đô thị...</Text> : null}
-                {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-              </>
-            }
-          />
-        )}
-
-        <View style={styles.composer}>
-          <Input
-            value={text}
-            onChangeText={setText}
-            placeholder="Nhập câu hỏi..."
-            style={styles.input}
-          />
-          <Button onPress={() => ask()} disabled={!text.trim() || loading} loading={loading}>Gửi</Button>
         </View>
       </KeyboardAvoidingView>
 
-      <MobileBottomTabBar
-        active="Assistant"
-        badges={{ Friends: friendRequestCount }}
-        onNavigate={{ Chats: onOpenChats, Friends: onOpenFriends, Urban: onOpenUrban, Profile: onOpenProfile }}
-      />
+      {!keyboardVisible ? (
+        <MobileBottomTabBar
+          active="Assistant"
+          badges={{ Friends: friendRequestCount }}
+          onNavigate={{ Chats: onOpenChats, Friends: onOpenFriends, Urban: onOpenUrban, Profile: onOpenProfile }}
+        />
+      ) : null}
     </Screen>
   )
 }
@@ -252,6 +276,7 @@ const createStyles = (theme) => {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.background },
     flex: { flex: 1 },
+    content: { flex: 1 },
     header: { margin: 16, flexDirection: 'row', gap: 12 },
     aiIcon: { width: 52, height: 52, borderRadius: 18, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center' },
     aiIconText: { fontSize: 28, color: c.primary },
@@ -259,10 +284,11 @@ const createStyles = (theme) => {
     eyebrow: { color: c.secondaryForeground, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
     title: { color: c.neutral900, fontSize: 24, fontWeight: '900', marginTop: 3 },
     subtitle: { color: c.neutral500, fontSize: 14, marginTop: 4 },
-    welcome: { paddingHorizontal: 16, gap: 10 },
+    welcome: { flex: 1, paddingHorizontal: 16, gap: 10, justifyContent: 'center' },
     suggestion: { minHeight: 46, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, justifyContent: 'center', paddingHorizontal: 16 },
     suggestionText: { color: c.neutral700, fontWeight: '800' },
-    thread: { padding: 16, gap: 10, paddingBottom: 120 },
+    threadList: { flex: 1 },
+    thread: { padding: 16, gap: 10, paddingBottom: 16 },
     bubble: { maxWidth: '92%', borderRadius: theme.radius.lg, padding: 12 },
     userBubble: { alignSelf: 'flex-end', backgroundColor: c.primary },
     assistantBubble: { alignSelf: 'flex-start', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },

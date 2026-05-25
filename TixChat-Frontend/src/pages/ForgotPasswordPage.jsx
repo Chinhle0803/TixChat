@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import axios from 'axios'
+import { getNgrokBypassHeaders, resolveApiBaseUrl } from '../utils/runtimeUrl.js'
 
-const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '')
-const API_URL = normalizeBaseUrl(import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+const API_URL = resolveApiBaseUrl(import.meta.env.VITE_API_URL)
+const ngrokHeaders = getNgrokBypassHeaders(API_URL)
 
 /**
  * ForgotPasswordPage - Luồng đặt lại mật khẩu
@@ -43,7 +44,7 @@ export default function ForgotPasswordPage({ onSwitchToLogin, onSuccess }) {
     setMessage('')
 
     try {
-      await axios.post(`${API_URL}/auth/forgot-password`, { email })
+      await axios.post(`${API_URL}/auth/forgot-password`, { email }, { headers: ngrokHeaders })
       setMessage('Mã xác minh đã được gửi đến email của bạn. Vui lòng kiểm tra hộp thư đến.')
       setStep(2)
     } catch (err) {
@@ -72,10 +73,14 @@ export default function ForgotPasswordPage({ onSwitchToLogin, onSuccess }) {
     setMessage('')
 
     try {
-      await axios.post(`${API_URL}/auth/verify-reset-token`, {
-        email,
-        token,
-      })
+      await axios.post(
+        `${API_URL}/auth/verify-reset-token`,
+        {
+          email,
+          token,
+        },
+        { headers: ngrokHeaders }
+      )
       setStep(3)
       setMessage('Xác minh thành công. Vui lòng nhập mật khẩu mới của bạn.')
     } catch (err) {
@@ -112,12 +117,16 @@ export default function ForgotPasswordPage({ onSwitchToLogin, onSuccess }) {
     setMessage('')
 
     try {
-      await axios.post(`${API_URL}/auth/reset-password`, {
-        email,
-        token,
-        newPassword,
-        confirmPassword,
-      })
+      await axios.post(
+        `${API_URL}/auth/reset-password`,
+        {
+          email,
+          token,
+          newPassword,
+          confirmPassword,
+        },
+        { headers: ngrokHeaders }
+      )
       setMessage('Đặt lại mật khẩu thành công! Đang chuyển hướng đến đăng nhập...')
       setTimeout(() => {
         onSuccess()

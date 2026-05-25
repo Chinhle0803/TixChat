@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { conversationApi, userApi } from '../services/api'
+import { getSocket } from '../services/socket'
 import { MobileBottomTabBar } from './ui'
 
 const normalizeId = (value) => {
@@ -118,6 +119,16 @@ const getStatusLabel = (user) => {
 const getErrorMessage = (error, fallback) =>
   String(error?.response?.data?.error || error?.response?.data?.message || fallback)
 
+const updatePresenceForUsers = (users = [], userId, patch = {}) => {
+  const targetId = normalizeId(userId)
+  if (!targetId) return users
+
+  return users.map((user) => {
+    const currentId = normalizeId(user?.userId || user?._id || user?.id)
+    return currentId === targetId ? { ...user, ...patch } : user
+  })
+}
+
 const Avatar = ({ user, size = 54, showOnlineDot = false }) => {
   const avatarUri = getAvatarUri(user)
   const displayName = getDisplayName(user)
@@ -222,9 +233,40 @@ export default function FriendHubScreen({
     }
   }, [])
 
-  React.useEffect(() => {
+  useEffect(() => {
     refreshData()
   }, [refreshData])
+
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return undefined
+
+    const applyPresence = (userId, status) => {
+      const normalizedStatus = String(status || '').toLowerCase()
+      const isOnline = normalizedStatus && normalizedStatus !== 'offline'
+      const patch = isOnline
+        ? { isOnline: true }
+        : { isOnline: false, lastSeenAt: new Date().toISOString() }
+
+      setFriendUsers((current) => updatePresenceForUsers(current, userId, patch))
+      setPendingRequestUsers((current) => updatePresenceForUsers(current, userId, patch))
+      setSearchResults((current) => updatePresenceForUsers(current, userId, patch))
+    }
+
+    const handleOnline = ({ userId }) => applyPresence(userId, 'online')
+    const handleOffline = ({ userId }) => applyPresence(userId, 'offline')
+    const handlePresence = ({ userId, status }) => applyPresence(userId, status)
+
+    socket.on('user:online', handleOnline)
+    socket.on('user:offline', handleOffline)
+    socket.on('user:presence', handlePresence)
+
+    return () => {
+      socket.off('user:online', handleOnline)
+      socket.off('user:offline', handleOffline)
+      socket.off('user:presence', handlePresence)
+    }
+  }, [])
 
   const handleQueryChange = (value) => {
     setQuery(value)

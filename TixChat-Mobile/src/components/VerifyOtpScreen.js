@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import AuthScaffold, { authPalette } from './AuthScaffold'
 
 export default function VerifyOtpScreen({
   email,
@@ -69,119 +70,127 @@ export default function VerifyOtpScreen({
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Xác thực OTP</Text>
-      <Text style={styles.subtitle}>Mã xác thực đã gửi tới {email}</Text>
+    <AuthScaffold
+      title="TixChat"
+      subtitle={`Mã xác thực đã gửi tới ${email || 'email của bạn'}`}
+      icon="shield-check-outline"
+    >
+      <View style={styles.content}>
+        <TextInput
+          style={styles.input}
+          placeholder="000000"
+          placeholderTextColor="#94A3B8"
+          keyboardType="number-pad"
+          maxLength={6}
+          value={otp}
+          onChangeText={(value) => {
+            setOtp(value.replace(/\D/g, '').slice(0, 6))
+            setLocalError('')
+          }}
+        />
 
-      <TextInput
-        style={styles.input}
-        placeholder="000000"
-        keyboardType="number-pad"
-        maxLength={6}
-        value={otp}
-        onChangeText={(value) => {
-          setOtp(value.replace(/\D/g, '').slice(0, 6))
-          setLocalError('')
-        }}
-      />
-
-      <Text style={styles.timerLabel}>
-        {countdown > 0 ? `Mã hết hạn sau: ${formatClock(countdown)}` : 'Mã OTP đã hết hạn'}
-      </Text>
-
-      {!!(localError || error) && <Text style={styles.error}>{localError || error}</Text>}
-
-      <Pressable style={[styles.button, !canVerify && styles.buttonDisabled]} onPress={submit} disabled={!canVerify}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Xác thực</Text>}
-      </Pressable>
-
-      <Pressable
-        style={[styles.secondaryButton, (resendCountdown > 0 || resending) && styles.buttonDisabled]}
-        onPress={resend}
-        disabled={resendCountdown > 0 || resending}
-      >
-        <Text style={styles.secondaryButtonText}>
-          {resendCountdown > 0 ? `Gửi lại sau ${resendCountdown}s` : resending ? 'Đang gửi...' : 'Gửi lại OTP'}
+        <Text style={styles.timerLabel}>
+          {countdown > 0 ? `Mã hết hạn sau: ${formatClock(countdown)}` : 'Mã OTP đã hết hạn'}
         </Text>
-      </Pressable>
 
-      <Pressable style={styles.linkButton} onPress={onBackToLogin}>
-        <Text style={styles.linkText}>Quay lại đăng nhập</Text>
-      </Pressable>
-    </View>
+        {!!(localError || error) && <Text style={styles.error}>{localError || error}</Text>}
+
+        <Pressable style={[styles.button, !canVerify && styles.buttonDisabled]} onPress={submit} disabled={!canVerify}>
+          {loading ? <ActivityIndicator color="#1A1A1A" /> : <Text style={styles.buttonText}>Xác thực</Text>}
+        </Pressable>
+
+        <Pressable
+          style={[styles.secondaryButton, (resendCountdown > 0 || resending) && styles.buttonDisabled]}
+          onPress={resend}
+          disabled={resendCountdown > 0 || resending}
+        >
+          <Text style={styles.secondaryButtonText}>
+            {resendCountdown > 0 ? `Gửi lại sau ${resendCountdown}s` : resending ? 'Đang gửi...' : 'Gửi lại OTP'}
+          </Text>
+        </Pressable>
+
+        <Pressable style={styles.linkButton} onPress={onBackToLogin}>
+          <Text style={styles.linkText}>Quay lại đăng nhập</Text>
+        </Pressable>
+      </View>
+    </AuthScaffold>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#f8fafc',
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 20,
+  content: {
+    gap: 12,
   },
   input: {
-    backgroundColor: '#fff',
-    borderColor: '#e2e8f0',
-    borderWidth: 1,
+    backgroundColor: authPalette.card,
+    borderColor: authPalette.border,
+    borderWidth: 2,
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     marginBottom: 8,
     letterSpacing: 6,
     fontSize: 20,
     textAlign: 'center',
+    color: authPalette.text,
   },
   timerLabel: {
-    color: '#0f766e',
-    marginBottom: 10,
+    color: authPalette.success,
+    marginBottom: 4,
+    textAlign: 'center',
+    backgroundColor: authPalette.successSoft,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   error: {
-    color: '#dc2626',
+    color: authPalette.danger,
     marginBottom: 8,
+    textAlign: 'center',
+    backgroundColor: authPalette.dangerSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(220, 38, 38, 0.22)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   button: {
-    backgroundColor: '#0891b2',
-    borderRadius: 10,
-    paddingVertical: 13,
+    backgroundColor: authPalette.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
+    shadowColor: authPalette.primary,
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
+    color: '#1A1A1A',
     fontWeight: '700',
   },
   secondaryButton: {
-    marginTop: 10,
+    marginTop: 2,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#99f6e4',
-    backgroundColor: '#ecfeff',
+    borderColor: 'rgba(37, 99, 235, 0.18)',
+    backgroundColor: authPalette.primarySoft,
     paddingVertical: 12,
     alignItems: 'center',
   },
   secondaryButtonText: {
-    color: '#0f766e',
+    color: authPalette.primaryDark,
     fontWeight: '600',
   },
   linkButton: {
-    marginTop: 14,
+    marginTop: 8,
     alignItems: 'center',
   },
   linkText: {
-    color: '#334155',
+    color: authPalette.text,
     fontWeight: '600',
   },
 })

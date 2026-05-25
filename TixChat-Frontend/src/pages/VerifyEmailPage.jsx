@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { getNgrokBypassHeaders, resolveApiBaseUrl } from '../utils/runtimeUrl.js'
 import './VerifyEmailPage.css'
 
-const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '')
-const API_URL = normalizeBaseUrl(import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+const API_URL = resolveApiBaseUrl(import.meta.env.VITE_API_URL)
+const ngrokHeaders = getNgrokBypassHeaders(API_URL)
 
 export default function VerifyEmailPage() {
   const [status, setStatus] = useState('verifying') // verifying, success, error
@@ -24,7 +25,9 @@ export default function VerifyEmailPage() {
           return
         }
 
-        const response = await axios.get(`${API_URL}/email/verify/${token}`)
+        const response = await axios.get(`${API_URL}/email/verify/${token}`, {
+          headers: ngrokHeaders,
+        })
 
         if (response.status === 200) {
           setStatus('success')

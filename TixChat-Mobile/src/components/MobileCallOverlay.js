@@ -13,21 +13,13 @@ const formatDuration = (seconds = 0) => {
 }
 
 const normalizeId = (value) => {
-  if (!value) return ''
+  if (value === null || value === undefined || value === '') return ''
   if (typeof value === 'object') return String(value._id || value.userId || value.id || '')
   return String(value)
 }
 
-const getRouteLabel = (route) => {
-  const map = {
-    speaker: 'Loa ngoài',
-    earpiece: 'Loa trong',
-    wiredHeadset: 'Tai nghe',
-    bluetooth: 'Bluetooth',
-    unknown: 'Không rõ',
-  }
-  return map[route] || route || 'Loa ngoài'
-}
+const getSpeakerModeLabel = (route) => (route === 'speaker' ? 'Loa ngoài' : 'Loa trong')
+const getNextSpeakerMode = (route) => (route === 'speaker' ? 'earpiece' : 'speaker')
 
 const getParticipantName = (participant) => {
   if (!participant || typeof participant === 'string') return 'Người dùng'
@@ -41,42 +33,108 @@ const getParticipantName = (participant) => {
   )
 }
 
-const buildVisibleTiles = ({ call, videoTiles, activeSpeakerId, isCameraEnabled }) => {
-  const normalizedTiles = Array.isArray(videoTiles) ? videoTiles : []
+const isRenderableVideoTile = (tile) => {
+  const numericTileId = Number(tile?.tileId)
+  return Number.isFinite(numericTileId) && numericTileId >= 0 && tile?.hasVideo !== false && !tile?.paused
+}
+
+const buildRemotePlaceholderTile = (call) => {
   const participantIds = Array.isArray(call?.participantIds) ? call.participantIds.map(normalizeId).filter(Boolean) : []
   const callerId = normalizeId(call?.callerId)
   const calleeId = normalizeId(call?.calleeId)
-  const fallbackIds = [...new Set([callerId, calleeId, ...participantIds].filter(Boolean))]
+  const remoteId = participantIds.find(Boolean) || calleeId || callerId || 'remote'
 
-  const tiles = normalizedTiles.length > 0
-    ? normalizedTiles
-    : fallbackIds.map((userId, index) => ({
-      tileId: `placeholder-${userId || index}`,
-      userId,
-      attendeeId: userId,
-      isLocal: index === 0,
-      hasVideo: index === 0 ? Boolean(isCameraEnabled) : false,
-    }))
+  return {
+    tileId: `remote-placeholder-${remoteId}`,
+    userId: remoteId,
+    attendeeId: remoteId,
+    isLocal: false,
+    hasVideo: false,
+    paused: true,
+  }
+}
+
+const buildLocalPreviewTile = ({ videoTiles, isCameraEnabled }) => {
+  const normalizedTiles = Array.isArray(videoTiles) ? videoTiles : []
+  const localTile = normalizedTiles.find((tile) => tile?.isLocal)
+  if (localTile) {
+    // isCameraEnabled is the JS-authoritative source of truth for local video
+    return {
+      ...localTile,
+      hasVideo: Boolean(isCameraEnabled) && localTile?.hasVideo !== false,
+      paused: !isCameraEnabled,
+    }
+  }
+
+  return {
+    tileId: 'local-preview-placeholder',
+    isLocal: true,
+    hasVideo: Boolean(isCameraEnabled),
+    paused: !isCameraEnabled,
+  }
+}
+
+const buildVisibleTiles = ({ call, videoTiles, activeSpeakerId }) => {
+  const normalizedTiles = Array.isArray(videoTiles) ? videoTiles : []
+  const remoteTiles = normalizedTiles.filter((tile) => !tile?.isLocal)
+  const tiles = remoteTiles.length > 0 ? remoteTiles : [buildRemotePlaceholderTile(call)]
 
   return [...tiles]
     .sort((a, b) => {
       const aActive = normalizeId(a.attendeeId || a.userId) === normalizeId(activeSpeakerId)
       const bActive = normalizeId(b.attendeeId || b.userId) === normalizeId(activeSpeakerId)
-      if (a.isLocal && !b.isLocal) return -1
-      if (!a.isLocal && b.isLocal) return 1
       if (aActive && !bActive) return -1
       if (!aActive && bActive) return 1
-      if (a.hasVideo && !b.hasVideo) return -1
-      if (!a.hasVideo && b.hasVideo) return 1
+      if (isRenderableVideoTile(a) && !isRenderableVideoTile(b)) return -1
+      if (!isRenderableVideoTile(a) && isRenderableVideoTile(b)) return 1
       return 0
     })
     .slice(0, MAX_VISIBLE_TILES)
 }
 
+function VideoTile({ tile, isActive, isPreview, isLarge }) {
+  const hasVideo = isRenderableVideoTile(tile)
+  const tileText = tile?.isLocal
+    ? (tile?.hasVideo === false || tile?.paused ? 'Bạn đang tắt camera' : 'Đang mở camera của bạn')
+    : 'Người dùng này đang tắt cam'
+  const badgeText = tile?.isLocal ? 'Bạn' : 'Video'
+
+  return (
+    <View
+      style={[
+        isPreview ? styles.previewTile : styles.videoTile,
+        !isPreview && (isLarge ? styles.videoTileLarge : styles.videoTileCompact),
+        isActive ? styles.activeTile : null,
+      ]}
+    >
+      {hasVideo ? (
+        <View style={[styles.nativeVideoPlaceholder, isPreview ? styles.previewVideoPlaceholder : null]}>
+          <TixChimeVideoView tileId={tile.tileId} style={styles.nativeVideoView} />
+          <View style={[styles.tileBadge, isPreview ? styles.previewBadge : null]}>
+            <Text style={[styles.tileBadgeText, isPreview ? styles.previewBadgeText : null]}>{badgeText}</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.avatarTile, isPreview ? styles.previewAvatarTile : null]}>
+          <MaterialCommunityIcons
+            name={tile?.isLocal ? 'video-outline' : 'video-off-outline'}
+            style={[styles.avatarIcon, isPreview ? styles.previewAvatarIcon : null]}
+          />
+          <Text style={[styles.tileText, isPreview ? styles.previewTileText : null]}>{tileText}</Text>
+        </View>
+      )}
+    </View>
+  )
+}
+
 function VideoTileGrid({ call, videoTiles, activeSpeakerId, isCameraEnabled }) {
   const visibleTiles = useMemo(
-    () => buildVisibleTiles({ call, videoTiles, activeSpeakerId, isCameraEnabled }),
-    [activeSpeakerId, call, isCameraEnabled, videoTiles]
+    () => buildVisibleTiles({ call, videoTiles, activeSpeakerId }),
+    [activeSpeakerId, call, videoTiles]
+  )
+  const localPreviewTile = useMemo(
+    () => buildLocalPreviewTile({ videoTiles, isCameraEnabled }),
+    [isCameraEnabled, videoTiles]
   )
 
   const gridStyle = visibleTiles.length <= 1
@@ -90,7 +148,7 @@ function VideoTileGrid({ call, videoTiles, activeSpeakerId, isCameraEnabled }) {
       <View style={[styles.videoGrid, styles.gridOne]}>
         <View style={styles.emptyTile}>
           <MaterialCommunityIcons name="video-outline" style={styles.emptyIcon} />
-          <Text style={styles.emptyText}>Đang chờ video</Text>
+          <Text style={styles.emptyText}>Người dùng này đang tắt cam</Text>
         </View>
       </View>
     )
@@ -101,32 +159,18 @@ function VideoTileGrid({ call, videoTiles, activeSpeakerId, isCameraEnabled }) {
       {visibleTiles.map((tile) => {
         const tileId = normalizeId(tile.tileId || tile.attendeeId || tile.userId)
         const isActive = normalizeId(tile.attendeeId || tile.userId) === normalizeId(activeSpeakerId)
-        const hasVideo = tile.hasVideo !== false && !tile.paused
         return (
-          <View
+          <VideoTile
             key={tileId}
-            style={[
-              styles.videoTile,
-              visibleTiles.length <= 2 ? styles.videoTileLarge : styles.videoTileCompact,
-              isActive ? styles.activeTile : null,
-            ]}
-          >
-            {hasVideo ? (
-              <View style={styles.nativeVideoPlaceholder}>
-                <TixChimeVideoView tileId={tile.tileId} style={styles.nativeVideoView} />
-                <View style={styles.tileBadge}>
-                  <Text style={styles.tileBadgeText}>{tile.isLocal ? 'Bạn' : 'Video'}</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.avatarTile}>
-                <MaterialCommunityIcons name="account" style={styles.avatarIcon} />
-                <Text style={styles.tileText}>{tile.isLocal ? 'Camera tắt' : 'Chưa bật camera'}</Text>
-              </View>
-            )}
-          </View>
+            tile={tile}
+            isActive={isActive}
+            isLarge={visibleTiles.length <= 2}
+          />
         )
       })}
+      <View style={styles.localPreviewContainer}>
+        <VideoTile tile={localPreviewTile} isPreview />
+      </View>
     </View>
   )
 }
@@ -187,7 +231,6 @@ export default function MobileCallOverlay({
   videoTiles = [],
   activeSpeakerId = '',
   audioRoute = 'speaker',
-  availableAudioRoutes = ['speaker'],
   onAccept,
   onDecline,
   onEnd,
@@ -215,6 +258,7 @@ export default function MobileCallOverlay({
 
   const callType = String(call?.callType || '').toLowerCase() === 'video' ? 'video' : 'thoại'
   const isVideoCall = callType === 'video'
+  const nextAudioRoute = getNextSpeakerMode(audioRoute)
   const title = useMemo(() => {
     if (phase === 'incoming') return `Cuộc gọi ${callType} đến`
     if (phase === 'ringing') return `Đang gọi ${callType}`
@@ -234,10 +278,14 @@ export default function MobileCallOverlay({
               {phase === 'active' ? formatDuration(duration) : 'Amazon Chime SDK Meetings'}
             </Text>
           </View>
-          <View style={styles.routePill}>
+          <Pressable
+            style={[styles.routePill, phase !== 'active' ? styles.routePillDisabled : null]}
+            onPress={() => onSelectAudioRoute?.(nextAudioRoute)}
+            disabled={phase !== 'active'}
+          >
             <MaterialCommunityIcons name="volume-high" style={styles.routeIcon} />
-            <Text style={styles.routeText}>{getRouteLabel(audioRoute)}</Text>
-          </View>
+            <Text style={styles.routeText}>{getSpeakerModeLabel(audioRoute)}</Text>
+          </Pressable>
         </View>
 
         {phase === 'incoming' ? (
@@ -280,19 +328,6 @@ export default function MobileCallOverlay({
               />
             )}
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            <View style={styles.audioRoutes}>
-              {availableAudioRoutes.map((route) => (
-                <Pressable
-                  key={route}
-                  style={[styles.audioRouteButton, route === audioRoute ? styles.audioRouteActive : null]}
-                  onPress={() => onSelectAudioRoute?.(route)}
-                >
-                  <Text style={[styles.audioRouteText, route === audioRoute ? styles.audioRouteTextActive : null]}>
-                    {getRouteLabel(route)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
             <View style={styles.controls}>
               <Pressable style={styles.roundButton} onPress={onToggleMute} disabled={phase !== 'active'}>
                 <MaterialCommunityIcons name={isMuted ? 'microphone-off' : 'microphone'} style={styles.roundIcon} />
@@ -352,6 +387,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 6,
   },
+  routePillDisabled: {
+    opacity: 0.55,
+  },
   routeIcon: {
     color: '#bfdbfe',
     fontSize: 16,
@@ -365,6 +403,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginTop: 18,
     gap: 10,
+    position: 'relative',
   },
   gridOne: {
     flexDirection: 'column',
@@ -378,10 +417,16 @@ const styles = StyleSheet.create({
     alignContent: 'stretch',
   },
   videoTile: {
-    borderRadius: 8,
+    borderRadius: 12,
     backgroundColor: '#111827',
     borderWidth: 1,
     borderColor: '#334155',
+    overflow: 'hidden',
+  },
+  previewTile: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: '#020617',
     overflow: 'hidden',
   },
   videoTileLarge: {
@@ -403,9 +448,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#020617',
   },
+  previewVideoPlaceholder: {
+    minHeight: 0,
+  },
   nativeVideoView: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#020617',
   },
   tileBadge: {
     position: 'absolute',
@@ -421,12 +468,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  previewBadge: {
+    left: 6,
+    bottom: 6,
+    borderRadius: 7,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  previewBadgeText: {
+    fontSize: 10,
+  },
   avatarTile: {
     flex: 1,
     minHeight: 140,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1e293b',
+  },
+  previewAvatarTile: {
+    minHeight: 0,
+    paddingHorizontal: 8,
+    backgroundColor: '#0b1220',
+  },
+  localPreviewContainer: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 132,
+    height: 98,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#020617',
+    overflow: 'hidden',
+    zIndex: 5,
+    elevation: 5,
   },
   emptyTile: {
     flex: 1,
@@ -453,11 +529,20 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 42,
   },
+  previewAvatarIcon: {
+    fontSize: 24,
+  },
   tileText: {
     marginTop: 8,
     color: '#ffffff',
     fontWeight: '800',
     fontSize: 14,
+    textAlign: 'center',
+  },
+  previewTileText: {
+    marginTop: 5,
+    fontSize: 10,
+    lineHeight: 13,
   },
   tileSubText: {
     marginTop: 4,
@@ -547,32 +632,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '800',
-  },
-  audioRoutes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'center',
-    marginTop: 12,
-  },
-  audioRouteButton: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#475569',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  audioRouteActive: {
-    backgroundColor: '#dbeafe',
-    borderColor: '#dbeafe',
-  },
-  audioRouteText: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  audioRouteTextActive: {
-    color: '#0f172a',
   },
   controls: {
     marginTop: 18,

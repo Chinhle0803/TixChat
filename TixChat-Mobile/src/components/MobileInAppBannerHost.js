@@ -17,6 +17,12 @@ const getBannerIcon = (type = '') => {
   return 'bell-outline'
 }
 
+const getBannerTypeLabel = (type = '') => {
+  if (type === 'call') return 'Cuộc gọi'
+  if (type === 'message') return 'Tin nhắn'
+  return 'Thông báo'
+}
+
 export default function MobileInAppBannerHost({
   banners = [],
   onOpenBanner,
@@ -35,14 +41,52 @@ export default function MobileInAppBannerHost({
     <View pointerEvents="box-none" style={styles.host}>
       {banners.map((banner) => {
         const isCallBanner = banner?.type === 'call'
+        const isMessageBanner = banner?.type === 'message'
+        const isJoinCallBanner = isCallBanner && banner?.data?.action === 'join'
+        const cardStyle = [
+          styles.card,
+          isCallBanner ? styles.cardCall : null,
+          isMessageBanner ? styles.cardMessage : null,
+        ]
+        const stripeStyle = [
+          styles.typeStripe,
+          isCallBanner ? styles.typeStripeCall : null,
+          isMessageBanner ? styles.typeStripeMessage : null,
+        ]
+        const iconWrapStyle = [
+          styles.iconWrap,
+          isCallBanner ? styles.iconWrapCall : null,
+          isMessageBanner ? styles.iconWrapMessage : null,
+        ]
+        const iconStyle = [
+          styles.icon,
+          isCallBanner ? styles.iconCall : null,
+          isMessageBanner ? styles.iconMessage : null,
+        ]
+        const badgeStyle = [
+          styles.badge,
+          isCallBanner ? styles.badgeCall : null,
+          isMessageBanner ? styles.badgeMessage : null,
+        ]
+        const badgeTextStyle = [
+          styles.badgeText,
+          isCallBanner ? styles.badgeTextCall : null,
+          isMessageBanner ? styles.badgeTextMessage : null,
+        ]
         return (
-          <View key={banner.id} style={[styles.card, isCallBanner ? styles.cardCall : null]}>
+          <View key={banner.id} style={cardStyle}>
+            <View style={stripeStyle} />
             <Pressable style={styles.main} onPress={() => onOpenBanner?.(banner)}>
-              <View style={styles.iconWrap}>
-                <MaterialCommunityIcons name={getBannerIcon(banner?.type)} style={styles.icon} />
+              <View style={iconWrapStyle}>
+                <MaterialCommunityIcons name={getBannerIcon(banner?.type)} style={iconStyle} />
               </View>
               <View style={styles.copy}>
-                <Text style={styles.title} numberOfLines={1}>{banner?.title || 'Thông báo'}</Text>
+                <View style={styles.titleRow}>
+                  <Text style={styles.title} numberOfLines={1}>{banner?.title || 'Thông báo'}</Text>
+                  <View style={badgeStyle}>
+                    <Text style={badgeTextStyle}>{getBannerTypeLabel(banner?.type)}</Text>
+                  </View>
+                </View>
                 <Text style={styles.body} numberOfLines={2}>{banner?.body || ''}</Text>
               </View>
             </Pressable>
@@ -50,15 +94,15 @@ export default function MobileInAppBannerHost({
             <View style={styles.actions}>
               {isCallBanner ? (
                 <>
-                  <Pressable style={[styles.actionButton, styles.secondaryAction]} onPress={() => onDeclineCall?.(banner)}>
-                    <Text style={styles.secondaryActionText}>Từ chối</Text>
+                  <Pressable style={[styles.actionButton, styles.callDeclineAction]} onPress={() => onDeclineCall?.(banner)}>
+                    <Text style={styles.callActionText}>{isJoinCallBanner ? 'Ẩn' : 'Từ chối'}</Text>
                   </Pressable>
-                  <Pressable style={[styles.actionButton, styles.primaryAction]} onPress={() => onAcceptCall?.(banner)}>
-                    <Text style={styles.primaryActionText}>Nghe máy</Text>
+                  <Pressable style={[styles.actionButton, styles.callAcceptAction]} onPress={() => onAcceptCall?.(banner)}>
+                    <Text style={styles.callActionText}>{isJoinCallBanner ? 'Tham gia' : 'Nghe máy'}</Text>
                   </Pressable>
                 </>
               ) : (
-                <Pressable style={[styles.actionButton, styles.primaryAction]} onPress={() => onOpenBanner?.(banner)}>
+                <Pressable style={[styles.actionButton, styles.messageOpenAction]} onPress={() => onOpenBanner?.(banner)}>
                   <Text style={styles.primaryActionText}>Mở chat</Text>
                 </Pressable>
               )}
@@ -98,14 +142,38 @@ const createStyles = (theme) => {
       elevation: 14,
       overflow: 'hidden',
     },
+    cardMessage: {
+      borderColor: 'rgba(37, 99, 235, 0.22)',
+      backgroundColor: '#f8fbff',
+      shadowColor: '#2563eb',
+      shadowOpacity: 0.16,
+    },
     cardCall: {
-      borderColor: 'rgba(37, 99, 235, 0.2)',
+      borderColor: 'rgba(225, 29, 72, 0.28)',
+      backgroundColor: '#fff7f8',
+      shadowColor: '#e11d48',
+      shadowOpacity: 0.2,
+    },
+    typeStripe: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 5,
+      backgroundColor: c.primary,
+    },
+    typeStripeMessage: {
+      backgroundColor: '#2563eb',
+    },
+    typeStripeCall: {
+      backgroundColor: '#e11d48',
     },
     main: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      paddingHorizontal: 14,
+      paddingLeft: 18,
+      paddingRight: 14,
       paddingTop: 14,
       paddingBottom: 12,
     },
@@ -117,18 +185,62 @@ const createStyles = (theme) => {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    iconWrapMessage: {
+      backgroundColor: '#dbeafe',
+    },
+    iconWrapCall: {
+      backgroundColor: '#ffe4e6',
+    },
     icon: {
       fontSize: 20,
       color: c.primary,
+    },
+    iconMessage: {
+      color: '#2563eb',
+    },
+    iconCall: {
+      color: '#e11d48',
     },
     copy: {
       flex: 1,
       minWidth: 0,
     },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
     title: {
       color: c.neutral900,
+      flex: 1,
+      minWidth: 0,
       fontSize: 14,
       fontWeight: '900',
+    },
+    badge: {
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      backgroundColor: c.muted,
+    },
+    badgeMessage: {
+      backgroundColor: '#dbeafe',
+    },
+    badgeCall: {
+      backgroundColor: '#ffe4e6',
+    },
+    badgeText: {
+      color: c.neutral600,
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 0.2,
+      textTransform: 'uppercase',
+    },
+    badgeTextMessage: {
+      color: '#1d4ed8',
+    },
+    badgeTextCall: {
+      color: '#be123c',
     },
     body: {
       marginTop: 4,
@@ -151,20 +263,23 @@ const createStyles = (theme) => {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    primaryAction: {
-      backgroundColor: c.primary,
+    messageOpenAction: {
+      backgroundColor: '#2563eb',
     },
-    secondaryAction: {
-      backgroundColor: c.muted,
+    callAcceptAction: {
+      backgroundColor: '#16a34a',
+    },
+    callDeclineAction: {
+      backgroundColor: '#dc2626',
     },
     primaryActionText: {
       color: c.primaryForeground,
       fontWeight: '800',
       fontSize: 12,
     },
-    secondaryActionText: {
-      color: c.neutral900,
-      fontWeight: '800',
+    callActionText: {
+      color: '#ffffff',
+      fontWeight: '900',
       fontSize: 12,
     },
     dismissButton: {

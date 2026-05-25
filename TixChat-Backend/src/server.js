@@ -19,12 +19,13 @@ import notificationRoutes from './routes/notification.js'
 import postRoutes from './routes/post.js'
 import mapRoutes from './routes/map.js'
 import assistantRoutes from './routes/assistant.js'
+import mediaRoutes from './routes/media.js'
 
 const app = express()
 
 const isAllowedOrigin = (origin) => {
   if (!origin) return true
-  return true
+  return config.frontendOrigins.includes(origin)
 }
 
 const corsOriginHandler = (origin, callback) => {
@@ -75,6 +76,7 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/posts', postRoutes)
 app.use('/api/maps', mapRoutes)
 app.use('/api/assistant', assistantRoutes)
+app.use('/api/media', mediaRoutes)
 
 // Socket.IO
 initializeSocketHandlers(io)

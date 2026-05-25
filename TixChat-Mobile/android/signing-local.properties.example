@@ -1,0 +1,6 @@
+# Copy this file to signing-local.properties and fill local values.
+# Do not commit signing-local.properties or keystore files.
+TIXCHAT_RELEASE_STORE_FILE=app/tixchat-release.keystore
+TIXCHAT_RELEASE_KEY_ALIAS=tixchat-release
+TIXCHAT_RELEASE_STORE_PASSWORD=
+TIXCHAT_RELEASE_KEY_PASSWORD=

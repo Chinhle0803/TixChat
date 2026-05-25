@@ -232,11 +232,11 @@ export const MobileBottomTabBar = ({ active = 'Chats', onNavigate = {}, extraIns
   const insets = useSafeAreaInsets()
   const bottomInset = Math.max(insets.bottom, 8) + extraInset
   const tabs = [
-    ['Chats', 'message-text-outline', 'Chats'],
+    ['Chats', 'message-text-outline', 'Tin nhắn'],
     ['Friends', 'card-account-details-outline', 'Danh bạ'],
-    ['Urban', 'map-marker-radius-outline', 'Urban'],
-    ['Assistant', 'robot-outline', 'Assistant'],
-    ['Profile', 'account-outline', 'Profile'],
+    ['Urban', 'map-marker-radius-outline', 'Đô thị'],
+    ['Assistant', 'robot-outline', 'Trợ lý'],
+    ['Profile', 'account-outline', 'Hồ sơ'],
   ]
 
   return (
@@ -244,7 +244,7 @@ export const MobileBottomTabBar = ({ active = 'Chats', onNavigate = {}, extraIns
       {tabs.map(([key, icon, label]) => {
         const isActive = active === key
         return (
-          <Pressable key={key} style={styles.tabItem} onPress={onNavigate[key]}>
+          <Pressable key={key} style={[styles.tabItem, isActive && styles.tabItemActive]} onPress={onNavigate[key]}>
             <MaterialCommunityIcons name={icon} style={[styles.tabIcon, isActive && styles.tabIconActive]} />
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{label}</Text>
             {Number(badges?.[key]) > 0 ? (
@@ -483,21 +483,36 @@ const createStyles = (theme) => {
       right: 0,
       bottom: 0,
       zIndex: 40,
-      elevation: 16,
+      elevation: 18,
       backgroundColor: c.surface,
       borderTopWidth: 1,
-      borderTopColor: c.border,
+      borderTopColor: 'rgba(226, 232, 240, 0.86)',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-around',
       paddingTop: theme.spacing[2],
       minHeight: 64,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.08,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: -6 },
     },
-    tabItem: { alignItems: 'center', flex: 1, gap: 2, position: 'relative' },
+    tabItem: {
+      alignItems: 'center',
+      flex: 1,
+      gap: 2,
+      position: 'relative',
+      marginHorizontal: 4,
+      paddingVertical: 6,
+      borderRadius: theme.radius.pill,
+    },
+    tabItemActive: {
+      backgroundColor: c.primarySoft,
+    },
     tabIcon: { fontSize: 22, color: c.neutral500 },
     tabIconActive: { color: c.primary },
-    tabLabel: { fontSize: theme.type.xs, color: c.neutral500, fontWeight: '700' },
-    tabLabelActive: { color: c.primary },
+    tabLabel: { fontSize: theme.type.xs, color: c.neutral500, fontWeight: '700', lineHeight: 15 },
+    tabLabelActive: { color: c.primary, fontWeight: '900' },
     tabBadge: {
       position: 'absolute',
       top: -2,

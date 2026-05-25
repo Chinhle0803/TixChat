@@ -46,33 +46,33 @@ const MAP_HTML = `<!DOCTYPE html>
         border: none !important;
         box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18) !important;
         overflow: hidden;
-        border-radius: 16px !important;
+        border-radius: 22px !important;
       }
 
       .leaflet-control-zoom a {
-        width: 42px !important;
-        height: 42px !important;
-        line-height: 42px !important;
-        font-size: 22px !important;
+        width: 68px !important;
+        height: 68px !important;
+        line-height: 68px !important;
+        font-size: 34px !important;
         color: #0f172a !important;
       }
 
       .leaflet-control-current-location {
         border: none !important;
-        border-radius: 16px !important;
+        border-radius: 22px !important;
         overflow: hidden;
         box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18) !important;
       }
 
       .leaflet-control-current-location button {
-        width: 42px;
-        height: 42px;
+        width: 68px;
+        height: 68px;
         border: 0;
         background: #ffffff;
         color: #2563eb;
-        font-size: 22px;
+        font-size: 34px;
         font-weight: 900;
-        line-height: 42px;
+        line-height: 68px;
         text-align: center;
         cursor: pointer;
       }
@@ -96,7 +96,7 @@ const MAP_HTML = `<!DOCTYPE html>
       }
 
       .leaflet-bottom.leaflet-right {
-        bottom: 90px;
+        bottom: 112px;
         right: 16px;
       }
 
@@ -319,11 +319,26 @@ const MAP_HTML = `<!DOCTYPE html>
         );
       };
 
+      window.__locateCurrentPosition = function(button) {
+        window.__locateButton = button;
+        window.__setLocateButtonBusy(button, true);
+        window.__sendMessage('locate_request', {});
+      };
+
+      window.__finishLocateRequest = function(success, payload) {
+        window.__setLocateButtonBusy(window.__locateButton, false);
+        if (success && payload) {
+          window.__showCurrentLocation(payload.lat, payload.lng, payload.accuracy);
+        }
+      };
+
       window.addEventListener('message', function(event) {
         try {
           var data = JSON.parse(event.data || '{}');
           if (data && data.type === 'update_map') {
             window.__updateMap(data.payload || { posts: [], selectedPostId: null });
+          } else if (data && data.type === 'finish_locate_request') {
+            window.__finishLocateRequest(Boolean(data.success), data.payload || null);
           }
         } catch (_) {}
       });
@@ -429,6 +444,7 @@ export default function UrbanInteractiveMap({
   posts = [],
   selectedPostId = null,
   onSelectPost,
+  onLocateRequest,
   style,
 }) {
   const webViewRef = useRef(null)
@@ -470,6 +486,21 @@ export default function UrbanInteractiveMap({
     syncMap()
   }, [syncMap])
 
+  const finishLocateRequest = useCallback((success, location = null) => {
+    const payload = location ? JSON.stringify(location).replace(/</g, '\\u003c') : 'null'
+    const script = `window.__finishLocateRequest(${success ? 'true' : 'false'}, ${payload}); true;`
+
+    if (Platform.OS === 'web') {
+      iframeRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ type: 'finish_locate_request', success, payload: location }),
+        '*'
+      )
+      return
+    }
+
+    webViewRef.current?.injectJavaScript(script)
+  }, [])
+
   const handleMessage = useCallback((event) => {
     try {
       const data = JSON.parse(event?.nativeEvent?.data || '{}')
@@ -479,11 +510,17 @@ export default function UrbanInteractiveMap({
       }
       if (data?.type === 'marker_press' && data?.payload?.postId) {
         onSelectPost?.(data.payload.postId)
+        return
+      }
+      if (data?.type === 'locate_request') {
+        Promise.resolve(onLocateRequest?.())
+          .then((location) => finishLocateRequest(Boolean(location), location || null))
+          .catch(() => finishLocateRequest(false))
       }
     } catch (_) {
       // Ignore malformed bridge payloads from the webview runtime.
     }
-  }, [onSelectPost])
+  }, [finishLocateRequest, onLocateRequest, onSelectPost])
 
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined

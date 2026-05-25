@@ -1,38 +1,142 @@
 import { SOCKET_URL } from '../config/env'
 import { createSocketCore } from './socketCore.js'
 import { normalizeId } from '../utils/normalize.js'
+import { getInMemoryAuth } from './authState'
 
 let socketInstance = null
 let socketCore = null
 
-export const connectSocket = (accessToken) => {
-  if (!accessToken) return null
+const socketDiagnosticsEnabled = String(process.env.EXPO_PUBLIC_API_DIAGNOSTICS || '').toLowerCase() === 'true'
+const isNgrokUrl = (value) => /(?:\.ngrok-free\.dev|\.ngrok\.app|\.ngrok\.io)/i.test(String(value || ''))
+const socketExtraHeaders = isNgrokUrl(SOCKET_URL)
+  ? { 'ngrok-skip-browser-warning': 'true' }
+  : undefined
+const socketTransports = isNgrokUrl(SOCKET_URL)
+  ? ['polling', 'websocket']
+  : undefined
+
+const logSocketDiagnostic = (type, details = {}) => {
+  if (!socketDiagnosticsEnabled) return
+
+  const logger = type === 'connect_error' || type === 'reconnect_error' ? console.warn : console.log
+  logger(`[socket:${type}]`, {
+    socketUrl: SOCKET_URL,
+    ...details,
+  })
+}
+
+const summarizeSocketError = (error) => ({
+  message: error?.message || String(error || 'Socket error'),
+  type: error?.type,
+  description: error?.description,
+  contextStatus: error?.context?.status,
+})
+
+const bindSocketDiagnostics = (socket) => {
+  if (!socket || socket.__tixchatDiagnosticsBound) return
+  socket.__tixchatDiagnosticsBound = true
+
+  socket.on('connect', () => {
+    logSocketDiagnostic('connect', {
+      id: socket.id,
+      transport: socket.io?.engine?.transport?.name,
+    })
+  })
+
+  socket.on('disconnect', (reason) => {
+    logSocketDiagnostic('disconnect', { reason })
+  })
+
+  socket.on('connect_error', (error) => {
+    logSocketDiagnostic('connect_error', summarizeSocketError(error))
+  })
+
+  socket.io?.on?.('reconnect_attempt', (attempt) => {
+    logSocketDiagnostic('reconnect_attempt', { attempt })
+  })
+
+  socket.io?.on?.('reconnect_error', (error) => {
+    logSocketDiagnostic('reconnect_error', summarizeSocketError(error))
+  })
+
+  socket.io?.on?.('reconnect', (attempt) => {
+    logSocketDiagnostic('reconnect', {
+      attempt,
+      id: socket.id,
+      transport: socket.io?.engine?.transport?.name,
+    })
+  })
+}
+
+const getSocketAuthToken = (fallbackToken = '') => {
+  const inMemoryToken = String(getInMemoryAuth()?.accessToken || '').trim()
+  if (inMemoryToken) return inMemoryToken
+
+  const nextToken = String(fallbackToken || socketInstance?.auth?.token || '').trim()
+  return nextToken
+}
+
+export const syncSocketAuthToken = (accessToken, { reconnectIfNeeded = true } = {}) => {
+  const token = String(accessToken || '').trim()
+  if (!socketInstance || !token) return
+
+  const tokenChanged = socketInstance.auth?.token !== token
+  if (tokenChanged) {
+    socketInstance.auth = { ...(socketInstance.auth || {}), token }
+  }
+
+  if (!reconnectIfNeeded) return
+
+  if (tokenChanged && socketInstance.connected) {
+    socketInstance.disconnect()
+    socketInstance.connect()
+    return
+  }
+
+  if (socketInstance.disconnected) {
+    if (tokenChanged && socketInstance.active) {
+      socketInstance.disconnect()
+    }
+    socketInstance.connect()
+  }
+}
+
+export const connectSocket = (accessToken = '') => {
+  const token = getSocketAuthToken(accessToken)
+  if (!token) return null
 
   if (!socketCore) {
     socketCore = createSocketCore({
       socketUrl: SOCKET_URL,
-      getAccessToken: () => accessToken,
-      transports: ['websocket'],
+      getAccessToken: () => getSocketAuthToken(),
+      transports: socketTransports,
+      extraHeaders: socketExtraHeaders,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
     })
   }
 
   socketInstance = socketCore.connect()
+  bindSocketDiagnostics(socketInstance)
+  syncSocketAuthToken(token, { reconnectIfNeeded: false })
 
-  if (socketInstance && socketInstance.auth?.token !== accessToken) {
-    socketInstance.auth = { ...(socketInstance.auth || {}), token: accessToken }
-  }
-
-  if (socketInstance && !socketInstance.connected) {
+  if (socketInstance && socketInstance.disconnected && !socketInstance.active) {
     socketInstance.connect()
   }
 
   return socketInstance
 }
 
-export const getSocket = () => socketInstance
+export const getSocket = () => {
+  if (socketInstance?.connected) {
+    return socketInstance
+  }
+
+  return connectSocket()
+}
 
 export const disconnectSocket = () => {
   if (socketCore) {

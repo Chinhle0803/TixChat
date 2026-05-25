@@ -6,11 +6,8 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
 } from 'react-native'
-import { MaterialCommunityIcons } from '@expo/vector-icons'
+import AuthScaffold, { authPalette } from './AuthScaffold'
 
 const isValidEmail = (value) => /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(value)
 
@@ -96,192 +93,140 @@ export default function ForgotPasswordScreen({
     }
   }
 
+  const stepHeader = (
+    <View style={styles.stepRow}>
+      {[1, 2, 3].map((s, index) => (
+        <React.Fragment key={s}>
+          <View style={styles.stepWrap}>
+            <View style={[styles.stepItem, step >= s && styles.stepItemActive]}>
+              <Text style={[styles.stepText, step >= s && styles.stepTextActive]}>{s}</Text>
+            </View>
+            <Text style={[styles.stepLabel, step === s && styles.stepLabelActive]}>
+              {s === 1 ? 'Email' : s === 2 ? 'Xác minh' : 'Đặt lại'}
+            </Text>
+          </View>
+          {index < 2 ? <View style={[styles.stepLine, step > s && styles.stepLineActive]} /> : null}
+        </React.Fragment>
+      ))}
+    </View>
+  )
+
   return (
-    <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: undefined })} style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <AuthScaffold subtitle="Đặt lại mật khẩu của bạn" icon="message" headerExtra={stepHeader}>
+      {step === 1 && (
+        <>
+          <Text style={styles.label}>Địa chỉ Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="youremail@example.com"
+            placeholderTextColor="#94A3B8"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={email}
+            onChangeText={(value) => {
+              setEmail(value)
+              setLocalError('')
+            }}
+          />
+          <View style={styles.noteBox}>
+            <Text style={styles.noteText}>Chúng tôi sẽ gửi mã xác minh đến email này</Text>
+          </View>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <Text style={styles.label}>Địa chỉ Email</Text>
+          <TextInput style={[styles.input, styles.inputDisabled]} value={email} editable={false} />
+          <Text style={styles.label}>Mã xác minh</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nhập mã xác minh"
+            placeholderTextColor="#94A3B8"
+            autoCapitalize="characters"
+            value={token}
+            onChangeText={(value) => {
+              setToken(value.replace(/\s/g, '').toUpperCase())
+              setLocalError('')
+            }}
+          />
+        </>
+      )}
+
+      {step === 3 && (
+        <>
+          <Text style={styles.label}>Địa chỉ Email</Text>
+          <TextInput style={[styles.input, styles.inputDisabled]} value={email} editable={false} />
+
+          <Text style={styles.label}>Mật khẩu mới</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="••••••••"
+            placeholderTextColor="#94A3B8"
+            secureTextEntry
+            autoComplete="new-password"
+            value={newPassword}
+            onChangeText={(value) => {
+              setNewPassword(value)
+              setLocalError('')
+            }}
+          />
+
+          <Text style={styles.label}>Xác nhận mật khẩu</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="••••••••"
+            placeholderTextColor="#94A3B8"
+            secureTextEntry
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChangeText={(value) => {
+              setConfirmPassword(value)
+              setLocalError('')
+            }}
+          />
+        </>
+      )}
+
+      {!!(localError || error) && <Text style={styles.error}>{localError || error}</Text>}
+      {!!message && <Text style={styles.success}>{message}</Text>}
+
+      <Pressable
+        style={[styles.button, (!canSubmit || loading) && styles.buttonDisabled]}
+        onPress={submit}
+        disabled={!canSubmit || loading}
       >
-        <View style={styles.card}>
-          <View style={styles.brandRow}>
-            <MaterialCommunityIcons name="message" style={styles.brandIcon} />
-            <Text style={styles.title}>TixChat</Text>
-          </View>
-          <Text style={styles.subtitle}>Đặt lại mật khẩu của bạn</Text>
+        {loading ? (
+          <ActivityIndicator color="#1A1A1A" />
+        ) : (
+          <Text style={styles.buttonText}>
+            {step === 1 ? 'Gửi mã' : step === 2 ? 'Xác minh mã' : 'Đặt lại mật khẩu'}
+          </Text>
+        )}
+      </Pressable>
 
-          <View style={styles.stepRow}>
-            {[1, 2, 3].map((s, index) => (
-              <React.Fragment key={s}>
-                <View style={styles.stepWrap}>
-                  <View style={[styles.stepItem, step >= s && styles.stepItemActive]}>
-                    <Text style={[styles.stepText, step >= s && styles.stepTextActive]}>{s}</Text>
-                  </View>
-                  <Text style={[styles.stepLabel, step === s && styles.stepLabelActive]}>
-                    {s === 1 ? 'Email' : s === 2 ? 'Xác minh' : 'Đặt lại'}
-                  </Text>
-                </View>
-                {index < 2 ? <View style={styles.stepLine} /> : null}
-              </React.Fragment>
-            ))}
-          </View>
+      {step > 1 ? (
+        <Pressable style={styles.minorLinkButton} onPress={() => setStep((prev) => Math.max(1, prev - 1))}>
+          <Text style={styles.minorLinkText}>Quay lại bước trước</Text>
+        </Pressable>
+      ) : null}
 
-          {step === 1 && (
-            <>
-              <Text style={styles.label}>Địa chỉ Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="youremail@example.com"
-                placeholderTextColor="#87919d"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={(value) => {
-                  setEmail(value)
-                  setLocalError('')
-                }}
-              />
-              <View style={styles.noteBox}>
-                <Text style={styles.noteText}>Chúng tôi sẽ gửi mã xác minh đến email này</Text>
-              </View>
-            </>
-          )}
+      <View style={styles.divider} />
 
-          {step === 2 && (
-            <>
-              <Text style={styles.label}>Địa chỉ Email</Text>
-              <TextInput style={[styles.input, styles.inputDisabled]} value={email} editable={false} />
-              <Text style={styles.label}>Mã xác minh</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Nhập mã xác minh"
-                placeholderTextColor="#87919d"
-                autoCapitalize="characters"
-                value={token}
-                onChangeText={(value) => {
-                  setToken(value.replace(/\s/g, '').toUpperCase())
-                  setLocalError('')
-                }}
-              />
-            </>
-          )}
-
-          {step === 3 && (
-            <>
-              <Text style={styles.label}>Địa chỉ Email</Text>
-              <TextInput style={[styles.input, styles.inputDisabled]} value={email} editable={false} />
-
-              <Text style={styles.label}>Mật khẩu mới</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor="#87919d"
-                secureTextEntry
-                autoComplete="new-password"
-                value={newPassword}
-                onChangeText={(value) => {
-                  setNewPassword(value)
-                  setLocalError('')
-                }}
-              />
-
-              <Text style={styles.label}>Xác nhận mật khẩu</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor="#87919d"
-                secureTextEntry
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChangeText={(value) => {
-                  setConfirmPassword(value)
-                  setLocalError('')
-                }}
-              />
-            </>
-          )}
-
-          {!!(localError || error) && <Text style={styles.error}>{localError || error}</Text>}
-          {!!message && <Text style={styles.success}>{message}</Text>}
-
-          <Pressable
-            style={[styles.button, (!canSubmit || loading) && styles.buttonDisabled]}
-            onPress={submit}
-            disabled={!canSubmit || loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>
-                {step === 1 ? 'Gửi mã' : step === 2 ? 'Xác minh mã' : 'Đặt lại mật khẩu'}
-              </Text>
-            )}
-          </Pressable>
-
-          {step > 1 ? (
-            <Pressable style={styles.minorLinkButton} onPress={() => setStep((prev) => Math.max(1, prev - 1))}>
-              <Text style={styles.minorLinkText}>Quay lại bước trước</Text>
-            </Pressable>
-          ) : null}
-
-          <View style={styles.divider} />
-
-          <Pressable style={styles.linkButton} onPress={onSwitchToLogin}>
-            <Text style={styles.linkHint}>Nhớ mật khẩu của bạn? </Text>
-            <Text style={styles.linkText}>Đăng nhập</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Pressable style={styles.linkButton} onPress={onSwitchToLogin}>
+        <Text style={styles.linkHint}>Nhớ mật khẩu của bạn? </Text>
+        <Text style={styles.linkText}>Đăng nhập</Text>
+      </Pressable>
+    </AuthScaffold>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#231f4e',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    paddingVertical: 24,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#f4f5f7',
-    borderRadius: 16,
-    padding: 24,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  brandIcon: {
-    fontSize: 30,
-    color: '#ad9bf0',
-  },
-  title: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#7b8794',
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 18,
-  },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 20,
   },
   stepWrap: {
     alignItems: 'center',
@@ -290,84 +235,90 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#cfd8e3',
+    borderWidth: 2,
+    borderColor: authPalette.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e5e7eb',
+    backgroundColor: authPalette.surfaceTint,
   },
   stepItemActive: {
-    borderColor: '#6178e4',
-    backgroundColor: '#6178e4',
-    shadowColor: '#6178e4',
+    borderColor: authPalette.primary,
+    backgroundColor: authPalette.primary,
+    shadowColor: authPalette.primary,
     shadowOpacity: 0.3,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
   stepText: {
-    color: '#7b8794',
+    color: authPalette.textMuted,
     fontWeight: '700',
   },
   stepTextActive: {
-    color: '#fff',
+    color: authPalette.card,
   },
   stepLabel: {
     marginTop: 6,
     fontSize: 12,
-    color: '#7b8794',
+    color: authPalette.textMuted,
     fontWeight: '600',
   },
   stepLabelActive: {
-    color: '#6178e4',
+    color: authPalette.primary,
   },
   stepLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: '#cfd8e3',
+    height: 2,
+    backgroundColor: authPalette.border,
     marginHorizontal: 8,
   },
+  stepLineActive: {
+    backgroundColor: authPalette.primary,
+  },
   label: {
-    fontSize: 17,
-    color: '#4b5563',
+    fontSize: 14,
+    color: authPalette.text,
     fontWeight: '600',
     marginBottom: 8,
     marginTop: 10,
   },
   input: {
-    backgroundColor: '#f4f5f7',
-    borderColor: '#d1d5db',
-    borderWidth: 1,
+    backgroundColor: authPalette.card,
+    borderColor: authPalette.border,
+    borderWidth: 2,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 10,
-    color: '#334155',
+    color: authPalette.text,
     fontSize: 16,
   },
   inputDisabled: {
-    opacity: 0.75,
+    opacity: 0.72,
+    backgroundColor: authPalette.surfaceTint,
   },
   noteBox: {
-    backgroundColor: '#e5e7eb',
-    borderRadius: 8,
+    backgroundColor: authPalette.primarySoft,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.14)',
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 8,
   },
   noteText: {
-    color: '#7b8794',
-    fontSize: 15,
+    color: authPalette.textMuted,
+    fontSize: 13,
   },
   button: {
-    backgroundColor: '#6178e4',
+    backgroundColor: authPalette.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 10,
-    shadowColor: '#6178e4',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowColor: authPalette.primary,
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
@@ -375,33 +326,45 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    color: '#111827',
+    color: '#1A1A1A',
     fontWeight: '700',
     fontSize: 16,
   },
   error: {
-    color: '#dc2626',
+    color: authPalette.danger,
     marginBottom: 8,
     marginTop: 8,
     textAlign: 'center',
+    backgroundColor: authPalette.dangerSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(220, 38, 38, 0.22)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   success: {
-    color: '#0f766e',
+    color: authPalette.success,
     marginBottom: 8,
     marginTop: 8,
     textAlign: 'center',
+    backgroundColor: authPalette.successSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.22)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   minorLinkButton: {
     marginTop: 10,
     alignItems: 'center',
   },
   minorLinkText: {
-    color: '#4b5563',
+    color: authPalette.text,
     fontWeight: '600',
   },
   divider: {
     height: 1,
-    backgroundColor: '#d1d5db',
+    backgroundColor: authPalette.border,
     marginTop: 18,
     marginBottom: 10,
   },
@@ -412,12 +375,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   linkHint: {
-    color: '#7b8794',
-    fontSize: 16,
+    color: authPalette.textMuted,
+    fontSize: 14,
   },
   linkText: {
-    color: '#1f2937',
+    color: authPalette.text,
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 14,
   },
 })

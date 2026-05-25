@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import NewConversationModal from './NewConversationModal'
 import { MobileBottomTabBar } from './ui'
 import { conversationService, userService } from '../services/api'
+import { getSocket } from '../services/socket'
 
 const normalizeId = (value) => {
   if (!value) return ''
@@ -116,6 +117,143 @@ const getParticipantObject = (conversation, currentUserId) => {
   return participants[0] || null
 }
 
+const getParticipantPresenceSources = (conversation, currentUserId) => {
+  const participants = Array.isArray(conversation?.participants)
+    ? conversation.participants.filter((participant) => participant && typeof participant === 'object')
+    : []
+  if (participants.length === 0) return []
+
+  const currentId = normalizeId(currentUserId)
+  const others = participants.filter((participant) =>
+    normalizeId(participant?._id || participant?.userId || participant?.id) !== currentId
+  )
+
+  return others.length > 0 ? others : participants
+}
+
+const parsePresenceTimestamp = (value) => {
+  if (value === null || value === undefined || value === '') return 0
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+
+  const numericValue = Number(value)
+  if (Number.isFinite(numericValue) && String(value).trim() !== '') return numericValue
+
+  const date = new Date(value)
+  const timestamp = date.getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+const isPresenceOnline = (source) => {
+  if (!source || typeof source !== 'object') return false
+  const status = String(source?.status || source?.presence || source?.presenceStatus || '').toLowerCase()
+  return source?.isOnline === true || source?.online === true || status === 'online' || status === 'active'
+}
+
+const getLastSeenTimestamp = (source) => parsePresenceTimestamp(
+  source?.lastSeen ||
+  source?.lastSeenAt ||
+  source?.lastActiveAt ||
+  source?.lastOnlineAt ||
+  source?.offlineAt
+)
+
+const getPresenceState = (source, nowMs = Date.now()) => {
+  const sources = (Array.isArray(source) ? source : [source])
+    .filter((item) => item && typeof item === 'object')
+  if (sources.length === 0) return null
+
+  if (sources.some(isPresenceOnline)) {
+    return { type: 'online' }
+  }
+
+  const lastSeen = sources.reduce((latest, item) => {
+    const timestamp = getLastSeenTimestamp(item)
+    return timestamp > latest ? timestamp : latest
+  }, 0)
+
+  if (!lastSeen) return null
+
+  const minutes = Math.max(1, Math.floor((nowMs - lastSeen) / 60000))
+  if (minutes < 60) {
+    return { type: 'recent', minutes }
+  }
+
+  return null
+}
+
+const buildPresencePatch = (payload, onlineOverride) => {
+  const userPayload = payload?.user || payload?.profile || {}
+  const userId = normalizeId(payload?.userId || userPayload?._id || userPayload?.userId || userPayload?.id)
+  const status = String(payload?.status || userPayload?.status || '').toLowerCase()
+  const isOnline = onlineOverride ?? (status ? ['online', 'active'].includes(status) : Boolean(payload?.isOnline || userPayload?.isOnline))
+  const receivedLastSeen =
+    payload?.lastSeen ||
+    payload?.lastSeenAt ||
+    userPayload?.lastSeen ||
+    userPayload?.lastSeenAt ||
+    null
+  const lastSeen = isOnline ? receivedLastSeen : (receivedLastSeen || Date.now())
+
+  return {
+    userId,
+    patch: {
+      ...userPayload,
+      isOnline,
+      ...(lastSeen ? { lastSeen, lastSeenAt: lastSeen } : {}),
+    },
+  }
+}
+
+const updatePresenceForConversation = (item, userId, patch = {}) => {
+  const conversation = item?.conversation || item
+  const participants = Array.isArray(conversation?.participants) ? conversation.participants : []
+  let changed = false
+
+  const nextParticipants = participants.map((participant) => {
+    const participantId = normalizeId(participant?._id || participant?.userId || participant?.id || participant)
+    if (participantId !== userId) return participant
+    changed = true
+
+    if (participant && typeof participant === 'object') {
+      return {
+        ...participant,
+        ...patch,
+        _id: participant?._id || userId,
+        userId: participant?.userId || userId,
+      }
+    }
+
+    return {
+      ...patch,
+      _id: userId,
+      userId,
+    }
+  })
+
+  if (!changed) return item
+
+  const nextConversation = {
+    ...conversation,
+    participants: nextParticipants,
+  }
+
+  if (item?.conversation) {
+    return {
+      ...item,
+      conversation: nextConversation,
+    }
+  }
+
+  return nextConversation
+}
+
+const updatePresenceForUsers = (users = [], userId, patch = {}) => (
+  (users || []).map((item) => {
+    const itemId = normalizeId(item?.userId || item?._id || item?.id)
+    return itemId === userId ? { ...item, ...patch, _id: item?._id || userId, userId: item?.userId || userId } : item
+  })
+)
+
 const getAvatarUri = (conversation, currentUserId) => {
   const conversationAvatar = getAvatarValue(conversation)
   if (conversationAvatar) return String(conversationAvatar)
@@ -180,17 +318,9 @@ const getPreviewText = (conversation, currentUserId) => {
 }
 
 const buildStories = (conversations, currentUserId) => {
-  const stories = [
-    {
-      id: 'my-story',
-      label: 'Tin của bạn',
-      isAdd: true,
-      avatar: '',
-      conversation: null,
-    },
-  ]
+  const stories = []
 
-  const seen = new Set(['my-story'])
+  const seen = new Set()
   for (const conversation of conversations || []) {
     const participant = getParticipantObject(conversation, currentUserId)
     const participantId = normalizeId(participant?._id || participant?.userId || participant)
@@ -203,6 +333,7 @@ const buildStories = (conversations, currentUserId) => {
       isAdd: false,
       avatar: getAvatarUri(conversation, currentUserId),
       conversation,
+      presenceSources: getParticipantPresenceSources(conversation, currentUserId),
     })
 
     if (stories.length >= 6) break
@@ -234,6 +365,7 @@ export default function ConversationListScreen({
   const [searchResults, setSearchResults] = useState({ conversations: [], users: [], suggestions: [] })
   const [searchingUsers, setSearchingUsers] = useState(false)
   const [searchActionLoading, setSearchActionLoading] = useState({})
+  const [presenceNow, setPresenceNow] = useState(() => Date.now())
   const bottomInset = Math.max(insets.bottom, 8)
   const tabBarHeight = 64 + bottomInset
 
@@ -299,6 +431,42 @@ export default function ConversationListScreen({
     }
   }, [keyword])
 
+  useEffect(() => {
+    const timer = setInterval(() => setPresenceNow(Date.now()), 60000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return undefined
+
+    const applyPresence = (payload, onlineOverride) => {
+      const { userId, patch } = buildPresencePatch(payload, onlineOverride)
+      if (!userId) return
+
+      setSearchResults((current) => ({
+        conversations: (current?.conversations || []).map((item) => updatePresenceForConversation(item, userId, patch)),
+        users: updatePresenceForUsers(current?.users || [], userId, patch),
+        suggestions: updatePresenceForUsers(current?.suggestions || [], userId, patch),
+      }))
+      setPresenceNow(Date.now())
+    }
+
+    const handleOnline = (payload) => applyPresence(payload, true)
+    const handleOffline = (payload) => applyPresence(payload, false)
+    const handlePresence = (payload) => applyPresence(payload)
+
+    socket.on('user:online', handleOnline)
+    socket.on('user:offline', handleOffline)
+    socket.on('user:presence', handlePresence)
+
+    return () => {
+      socket.off('user:online', handleOnline)
+      socket.off('user:offline', handleOffline)
+      socket.off('user:presence', handlePresence)
+    }
+  }, [])
+
   const renderAvatar = (name, avatarUri, size = 54) => {
     if (avatarUri) {
       return <Image source={{ uri: avatarUri }} style={[styles.avatarImage, { width: size, height: size, borderRadius: size / 2 }]} />
@@ -307,6 +475,21 @@ export default function ConversationListScreen({
     return (
       <View style={[styles.avatarFallback, { width: size, height: size, borderRadius: size / 2 }]}>
         <Text style={[styles.avatarFallbackText, { fontSize: size > 42 ? 16 : 12 }]}>{getInitials(name)}</Text>
+      </View>
+    )
+  }
+
+  const renderPresenceBadge = (source, badgeStyle) => {
+    const presence = getPresenceState(source, presenceNow)
+    if (!presence) return null
+
+    if (presence.type === 'online') {
+      return <View style={[styles.presenceOnlineDot, badgeStyle]} />
+    }
+
+    return (
+      <View style={[styles.presenceMinutesBadge, badgeStyle]}>
+        <Text style={styles.presenceMinutesText}>{presence.minutes}p</Text>
       </View>
     )
   }
@@ -333,7 +516,10 @@ export default function ConversationListScreen({
 
     return (
       <View style={styles.searchResultUserRow}>
-        {renderAvatar(getUserDisplayName(item), getUserAvatarUri(item), 48)}
+        <View style={styles.searchAvatarWrap}>
+          {renderAvatar(getUserDisplayName(item), getUserAvatarUri(item), 48)}
+          {renderPresenceBadge(item, styles.searchPresenceBadge)}
+        </View>
         <View style={styles.searchResultUserMain}>
           <Text numberOfLines={1} style={styles.searchResultUserName}>{getUserDisplayName(item)}</Text>
           <Text numberOfLines={1} style={styles.searchResultUserMeta}>
@@ -398,10 +584,17 @@ export default function ConversationListScreen({
     const previewText = getPreviewText(conversation, user?._id || user?.userId)
     const avatarUri = getAvatarUri(conversation, user?._id || user?.userId)
     const matchCount = Number(item?.matchCount || conversation?.matchCount || 1)
+    const presenceSources = getParticipantPresenceSources(conversation, user?._id || user?.userId)
 
     return (
-      <Pressable style={styles.searchConversationRow} onPress={() => onOpenConversation?.(conversation)}>
-        {renderAvatar(title, avatarUri, 48)}
+      <Pressable
+        style={({ pressed }) => [styles.searchConversationRow, pressed && styles.rowPressed]}
+        onPress={() => onOpenConversation?.(conversation)}
+      >
+        <View style={styles.searchAvatarWrap}>
+          {renderAvatar(title, avatarUri, 48)}
+          {renderPresenceBadge(presenceSources, styles.searchPresenceBadge)}
+        </View>
         <View style={styles.searchConversationMain}>
           <View style={styles.searchConversationHead}>
             <Text numberOfLines={1} style={styles.searchConversationTitle}>{title}</Text>
@@ -418,6 +611,13 @@ export default function ConversationListScreen({
   return (
     <View style={styles.container}>
       <View style={[styles.headerRow, { paddingTop: insets.top + 4 }]}>
+        <View style={styles.appBrandRow}>
+          <View style={styles.appBrandMark}>
+            <Text style={styles.appBrandMarkText}>T</Text>
+          </View>
+          <Text numberOfLines={1} style={styles.appBrandName}>TixChat</Text>
+        </View>
+
         <View style={styles.searchBar}>
           <MaterialCommunityIcons name="magnify" style={styles.searchIcon} />
           <TextInput
@@ -425,7 +625,7 @@ export default function ConversationListScreen({
             value={searchText}
             onChangeText={setSearchText}
             placeholder="Tìm kiếm"
-            placeholderTextColor="#5b87e6"
+            placeholderTextColor="#7A8BA8"
             autoCapitalize="none"
           />
         </View>
@@ -487,7 +687,7 @@ export default function ConversationListScreen({
           onRefresh={onRefresh}
           refreshing={loading}
           contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + 36 }]}
-          ListHeaderComponent={
+          ListHeaderComponent={stories.length > 0 ? (
             <View style={styles.storyWrap}>
               <FlatList
                 horizontal
@@ -514,7 +714,10 @@ export default function ConversationListScreen({
                         <Text style={styles.addStoryPlus}>＋</Text>
                       </View>
                     ) : (
-                      <View style={styles.storyAvatarRing}>{renderAvatar(item.label, item.avatar, 58)}</View>
+                      <View style={styles.storyAvatarShell}>
+                        <View style={styles.storyAvatarRing}>{renderAvatar(item.label, item.avatar, 58)}</View>
+                        {renderPresenceBadge(item.presenceSources, styles.storyPresenceBadge)}
+                      </View>
                     )}
 
                     <Text numberOfLines={1} style={styles.storyLabel}>
@@ -524,7 +727,7 @@ export default function ConversationListScreen({
                 )}
               />
             </View>
-          }
+          ) : null}
           ListEmptyComponent={
             loading ? (
               <View style={styles.emptyWrap}>
@@ -544,10 +747,21 @@ export default function ConversationListScreen({
             const timeLabel = formatTimeLabel(getLatestTimestamp(item))
             const avatarUri = getAvatarUri(item, user?._id || user?.userId)
             const isPinned = Boolean(item?.isPinned || item?.pinnedAt)
+            const presenceSources = getParticipantPresenceSources(item, user?._id || user?.userId)
 
             return (
-              <Pressable style={styles.itemRow} onPress={() => onOpenConversation(item)}>
-                {renderAvatar(title, avatarUri, 52)}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.itemRow,
+                  unreadCount > 0 && styles.itemRowUnread,
+                  pressed && styles.rowPressed,
+                ]}
+                onPress={() => onOpenConversation(item)}
+              >
+                <View style={styles.itemAvatarWrap}>
+                  {renderAvatar(title, avatarUri, 54)}
+                  {renderPresenceBadge(presenceSources, styles.itemPresenceBadge)}
+                </View>
 
                 <View style={styles.itemMain}>
                   <View style={styles.itemTopLine}>
@@ -580,6 +794,7 @@ export default function ConversationListScreen({
       )}
 
       <Pressable style={[styles.fabButton, { bottom: tabBarHeight + 18 }]} onPress={() => setShowNewConversation(true)}>
+        <View style={styles.fabSheen} />
         <MaterialCommunityIcons name="plus" style={styles.fabIcon} />
       </Pressable>
 
@@ -609,43 +824,89 @@ export default function ConversationListScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { flex: 1, backgroundColor: '#f5f7fa' },
   headerRow: {
-    paddingBottom: 10,
-    paddingHorizontal: 14,
-    backgroundColor: '#f8f9fb',
+    paddingBottom: 14,
+    paddingHorizontal: 18,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(226, 232, 240, 0.72)',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
-  searchBar: {
-    flex: 1,
+  appBrandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#eef2ff',
+    paddingBottom: 12,
+  },
+  appBrandMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0f5ed7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+    shadowColor: '#0f5ed7',
+    shadowOpacity: 0.26,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+  appBrandMarkText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  appBrandName: {
+    flex: 1,
+    color: '#101828',
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '900',
+  },
+  searchBar: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F7FA',
     borderRadius: 22,
-    height: 42,
-    paddingHorizontal: 14,
+    height: 46,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: '#edf2f7',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.05,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
   },
   searchIcon: {
-    color: '#0f5ed7',
-    fontSize: 22,
+    color: '#5783d8',
+    fontSize: 21,
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    color: '#0f5ed7',
-    fontSize: 18,
+    color: '#172033',
+    fontSize: 16,
     fontWeight: '600',
     paddingVertical: 0,
   },
   storyWrap: {
-    backgroundColor: '#f8f9fb',
-    paddingBottom: 12,
+    backgroundColor: '#fff',
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   storyContent: {
-    paddingHorizontal: 8,
-    gap: 8,
+    paddingHorizontal: 14,
+    gap: 12,
   },
   storyItem: {
-    width: 84,
+    width: 80,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
@@ -665,16 +926,64 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     marginTop: -4,
   },
+  storyAvatarShell: {
+    padding: 3,
+    borderRadius: 999,
+    backgroundColor: '#eaf2ff',
+    shadowColor: '#1d4ed8',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
   storyAvatarRing: {
     borderWidth: 2,
-    borderColor: '#0f5ed7',
+    borderColor: '#2f80ed',
     borderRadius: 999,
     padding: 2,
+    backgroundColor: '#fff',
+  },
+  presenceOnlineDot: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#22c55e',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  presenceMinutesBadge: {
+    position: 'absolute',
+    minWidth: 25,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: '#eaf2ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1d4ed8',
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  presenceMinutesText: {
+    color: '#1d4ed8',
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: '900',
+  },
+  storyPresenceBadge: {
+    right: 0,
+    bottom: 4,
   },
   storyLabel: {
-    marginTop: 8,
-    color: '#1f2937',
-    fontSize: 14,
+    marginTop: 9,
+    color: '#263244',
+    fontSize: 13,
+    fontWeight: '600',
     textAlign: 'center',
   },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -711,9 +1020,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    borderRadius: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#eff1f5',
+    borderBottomColor: '#f1f5f9',
   },
   searchConversationMain: {
     flex: 1,
@@ -726,13 +1037,13 @@ const styles = StyleSheet.create({
   },
   searchConversationTitle: {
     flex: 1,
-    color: '#101828',
-    fontSize: 15,
-    fontWeight: '700',
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '800',
   },
   searchConversationMeta: {
     marginTop: 4,
-    color: '#475467',
+    color: '#667085',
     fontSize: 14,
     lineHeight: 19,
   },
@@ -754,6 +1065,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#eff1f5',
+  },
+  searchAvatarWrap: {
+    borderRadius: 999,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  searchPresenceBadge: {
+    right: -2,
+    bottom: 1,
   },
   searchResultUserMain: {
     flex: 1,
@@ -791,10 +1114,28 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+    marginHorizontal: 10,
+    marginVertical: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 18,
     backgroundColor: '#fff',
     alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  itemRowUnread: {
+    backgroundColor: '#fff8f8',
+    borderColor: '#fee2e2',
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  rowPressed: {
+    backgroundColor: '#f3f7ff',
+    transform: [{ scale: 0.99 }],
   },
   avatarImage: {
     backgroundColor: '#dbe3f0',
@@ -808,12 +1149,25 @@ const styles = StyleSheet.create({
     color: '#1d4ed8',
     fontWeight: '700',
   },
+  itemAvatarWrap: {
+    borderRadius: 999,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
+  },
+  itemPresenceBadge: {
+    right: -3,
+    bottom: 1,
+  },
   itemMain: {
     flex: 1,
     marginLeft: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eff1f5',
-    paddingBottom: 10,
+    borderBottomColor: '#f1f5f9',
+    paddingBottom: 12,
+    minHeight: 56,
   },
   itemTopLine: {
     flexDirection: 'row',
@@ -821,42 +1175,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemBottomLine: {
-    marginTop: 3,
+    marginTop: 5,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  itemTitle: { fontSize: 16, fontWeight: '700', color: '#101828', flex: 1, marginRight: 8 },
-  itemMessage: { color: '#3f3f46', fontSize: 15, flex: 1, marginRight: 8 },
-  itemMessageUnread: { fontWeight: '500', color: '#111827' },
-  itemTime: { color: '#9ca3af', fontSize: 12 },
-  itemTimeActive: { color: '#165de8', fontWeight: '600' },
+  itemTitle: { fontSize: 16, fontWeight: '800', color: '#111827', flex: 1, marginRight: 8 },
+  itemMessage: { color: '#667085', fontSize: 14, lineHeight: 19, flex: 1, marginRight: 8 },
+  itemMessageUnread: { fontWeight: '700', color: '#27364a' },
+  itemTime: { color: '#98a2b3', fontSize: 12, fontWeight: '600' },
+  itemTimeActive: { color: '#dc2626', fontWeight: '800' },
   unreadBadge: {
-    minWidth: 22,
+    minWidth: 24,
+    height: 24,
     borderRadius: 999,
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: '#d31e1f',
+    backgroundColor: '#ef4444',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  unreadText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  unreadText: { color: '#fff', fontSize: 11, fontWeight: '900' },
   pinIcon: { fontSize: 16, color: '#2558bd' },
   seenIcon: { color: '#9ca3af', fontSize: 15 },
   fabButton: {
     position: 'absolute',
     right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: '#0f5ed7',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    overflow: 'hidden',
+    shadowColor: '#0f5ed7',
+    shadowOpacity: 0.34,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  fabSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
   },
   fabIcon: {
     color: '#fff',
-    fontSize: 32,
+    fontSize: 31,
   },
   bottomTabBar: {
     position: 'absolute',

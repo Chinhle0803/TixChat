@@ -79,9 +79,21 @@ export const buildMessageNotification = ({ message, conversation, currentUserId 
   }
 }
 
-export const registerForPushNotificationsAsync = async () => {
+const getNotificationPermissionStatus = async ({ requestIfNeeded = false } = {}) => {
   if (!Device.isDevice) return null
 
+  const currentPermissions = await Notifications.getPermissionsAsync()
+  let finalStatus = currentPermissions.status
+
+  if (finalStatus !== 'granted' && requestIfNeeded && currentPermissions.canAskAgain !== false) {
+    const requested = await Notifications.requestPermissionsAsync()
+    finalStatus = requested.status
+  }
+
+  return finalStatus
+}
+
+const ensureNotificationChannelAsync = async () => {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('messages', {
       name: 'Tin nhắn',
@@ -90,14 +102,19 @@ export const registerForPushNotificationsAsync = async () => {
       sound: 'default',
     })
   }
+}
 
-  const currentPermissions = await Notifications.getPermissionsAsync()
-  let finalStatus = currentPermissions.status
-  if (finalStatus !== 'granted') {
-    const requested = await Notifications.requestPermissionsAsync()
-    finalStatus = requested.status
-  }
+export const requestNotificationPermissionAsync = async ({ requestIfNeeded = true } = {}) => {
+  if (!Device.isDevice) return null
+  await ensureNotificationChannelAsync()
+  return getNotificationPermissionStatus({ requestIfNeeded })
+}
 
+export const registerForPushNotificationsAsync = async ({ requestIfNeeded = false } = {}) => {
+  if (!Device.isDevice) return null
+
+  await ensureNotificationChannelAsync()
+  const finalStatus = await getNotificationPermissionStatus({ requestIfNeeded })
   if (finalStatus !== 'granted') return null
 
   const projectId = getProjectId()
@@ -111,6 +128,7 @@ export const registerForPushNotificationsAsync = async () => {
 export const scheduleMessageNotification = async ({ message, conversation, currentUserId }) => {
   const notification = buildMessageNotification({ message, conversation, currentUserId })
   if (!notification?.data?.conversationId) return
+  if (await getNotificationPermissionStatus() !== 'granted') return
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -148,6 +166,7 @@ export const buildCallNotification = ({ call, conversation }) => {
 export const scheduleCallNotification = async ({ call, conversation }) => {
   const notification = buildCallNotification({ call, conversation })
   if (!notification?.data?.callId || !notification?.data?.conversationId) return
+  if (await getNotificationPermissionStatus() !== 'granted') return
 
   await Notifications.scheduleNotificationAsync({
     content: {

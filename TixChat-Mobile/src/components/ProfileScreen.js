@@ -14,8 +14,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Button, Card, IconButton, Input, MobileBottomTabBar, Screen, TopBar } from './ui'
 import { useAppTheme } from '../theme'
+import { ensureLocationPermission } from '../services/permissions'
+import { getCurrentDeviceLocation, reverseGeocodeLocation } from '../services/location'
 import {
-  extractLocationFromReverseGeocode as extractFormattedLocationFromReverseGeocode,
   formatLocationLabel,
   normalizeProfileLocation as normalizeFormattedProfileLocation,
 } from '../utils/addressFormat'
@@ -106,6 +107,21 @@ const createProfileLocationMapHtml = (location = {}) => {
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
         );
       };
+      window.__locate = function(button) {
+        button.disabled = true;
+        button.textContent = '...';
+        window.__locateButton = button;
+        window.__sendMessage('current_location_request', {});
+      };
+      window.__finishLocate = function(success, payload) {
+        if (window.__locateButton) {
+          window.__locateButton.disabled = false;
+          window.__locateButton.textContent = '⌖';
+        }
+        if (success && payload) {
+          window.__pick(payload.lat, payload.lng);
+        }
+      };
     </script>
   </head>
   <body>
@@ -147,7 +163,7 @@ const createProfileLocationMapHtml = (location = {}) => {
 </html>`
 }
 
-function ProfileLocationMap({ value, onPick, style }) {
+function ProfileLocationMap({ value, onPick, onUseCurrentLocation, style }) {
   const webViewRef = React.useRef(null)
   const iframeRef = React.useRef(null)
   const html = React.useMemo(() => createProfileLocationMapHtml(value), [value])
@@ -155,6 +171,10 @@ function ProfileLocationMap({ value, onPick, style }) {
   const handleMessage = React.useCallback((event) => {
     try {
       const data = JSON.parse(event?.nativeEvent?.data || '{}')
+      if (data?.type === 'current_location_request') {
+        onUseCurrentLocation?.(webViewRef)
+        return
+      }
       if (data?.type !== 'location_pick') return
       const lat = Number(data?.payload?.lat)
       const lng = Number(data?.payload?.lng)
@@ -163,7 +183,7 @@ function ProfileLocationMap({ value, onPick, style }) {
     } catch (_) {
       // Ignore malformed bridge messages.
     }
-  }, [onPick])
+  }, [onPick, onUseCurrentLocation])
 
   React.useEffect(() => {
     if (Platform.OS !== 'web') return undefined
@@ -236,6 +256,7 @@ export default function ProfileScreen({
   const styles = useMemo(() => createStyles(theme), [theme])
   const c = theme.colors
   const insets = useSafeAreaInsets()
+
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [province, setProvince] = useState('')
@@ -353,6 +374,24 @@ export default function ProfileScreen({
     }
   }
 
+  const handleUseCurrentProfileLocation = async (mapRef) => {
+    setResolvingLocation(true)
+    setLocationPickerError('')
+    try {
+      const currentLocation = await getCurrentDeviceLocation({
+        deniedMessage: 'Bạn cần cấp quyền định vị để lấy vị trí hiện tại.',
+      })
+      mapRef?.current?.injectJavaScript?.(
+        `window.__finishLocate(true, ${JSON.stringify(currentLocation)}); true;`
+      )
+    } catch (err) {
+      mapRef?.current?.injectJavaScript?.('window.__finishLocate(false); true;')
+      setLocationPickerError(err?.message || 'Không thể lấy vị trí hiện tại')
+    } finally {
+      setResolvingLocation(false)
+    }
+  }
+
   const confirmProfileLocation = () => {
     const nextLocation = normalizeFormattedProfileLocation(draftProfileLocation, {
       province,
@@ -448,9 +487,17 @@ export default function ProfileScreen({
           <Text style={styles.fieldLabel}>KHU VỰC HIỆN TẠI</Text>
           <Pressable
             style={styles.locationPickerButton}
-            onPress={() => {
-              setDraftProfileLocation(profileLocation)
-              setShowLocationPicker(true)
+            onPress={async () => {
+              setLocalError('')
+              try {
+                await ensureLocationPermission({
+                  deniedMessage: 'Bạn cần cấp quyền định vị để chọn vị trí trên bản đồ.',
+                })
+                setDraftProfileLocation(profileLocation)
+                setShowLocationPicker(true)
+              } catch (permissionError) {
+                setLocalError(permissionError?.message || 'Không thể truy cập vị trí trên thiết bị này')
+              }
             }}
           >
             <View style={styles.locationPickerTextWrap}>
@@ -541,6 +588,7 @@ export default function ProfileScreen({
               <ProfileLocationMap
                 value={draftProfileLocation}
                 onPick={handleProfileLocationPick}
+                onUseCurrentLocation={handleUseCurrentProfileLocation}
                 style={styles.locationMap}
               />
             </View>

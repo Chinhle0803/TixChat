@@ -63,6 +63,22 @@
   color: var(--muted-foreground);
 }
 
+.system-call-join-button {
+  margin-top: 8px;
+  border: none;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+}
+
+.system-call-join-button:hover {
+  filter: brightness(0.96);
+}
+
 .message.system .message-actions,
 .message.system .message-footer,
 .message.system .message-reactions,
@@ -368,39 +384,47 @@
   box-shadow: var(--shadow-md);
   z-index: 200;
   min-width: 180px;
+  max-width: min(220px, calc(100vw - 32px));
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.delete-dropdown-item {
+.message-actions .delete-dropdown-item {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 38px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 10px 14px;
-  border: none;
-  background: none;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0;
   cursor: pointer;
   font-size: 14px;
   color: var(--foreground);
   text-align: left;
 }
 
-.delete-dropdown-item:hover {
-  background: var(--muted);
+.message-actions .delete-dropdown-item:hover {
+  background: var(--muted) !important;
 }
 
-.delete-dropdown-item.danger {
+.message-actions .delete-dropdown-item.danger {
   color: var(--destructive);
 }
 
-.delete-dropdown-item svg {
+.message-actions .delete-dropdown-item svg {
   width: 15px;
   height: 15px;
   flex-shrink: 0;
 }
 
-.delete-dropdown-item span {
+.message-actions .delete-dropdown-item span {
   font-weight: 500;
 }
 
@@ -456,8 +480,22 @@
   .message-wrapper {
     max-width: 85%;
   }
-<<<<<<< HEAD
+
+  .delete-dropdown {
+    min-width: 128px;
+    max-width: calc(100vw - 40px);
+    border-radius: var(--radius-md);
+  }
+
+  .message-actions .delete-dropdown-item {
+    min-height: 34px;
+    padding: 8px 10px;
+    gap: 6px;
+    font-size: 13px;
+  }
+
+  .message-actions .delete-dropdown-item svg {
+    width: 14px;
+    height: 14px;
+  }
 }
-=======
-}
->>>>>>> db60783c03601ac02358744473479e212cf7b40c

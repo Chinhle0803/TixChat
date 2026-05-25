@@ -15,14 +15,35 @@ const withTimeout = (factory, timeoutMs, errorMessage) =>
 export const createSocketCore = ({
   socketUrl, getAccessToken,
   reconnection = true, reconnectionAttempts = 10, reconnectionDelay = 1000,
-  reconnectionDelayMax, transports,
+  reconnectionDelayMax, transports, extraHeaders, timeout = 10000,
 }) => {
   let socket = null
   const connect = () => {
     const token = typeof getAccessToken === 'function' ? getAccessToken() : null
     if (!token) return null
-    if (socket?.connected) return socket
-    socket = io(socketUrl, { auth: { token }, reconnection, reconnectionAttempts, reconnectionDelay, reconnectionDelayMax, transports })
+
+    if (socket) {
+      if (socket.auth?.token !== token) {
+        socket.auth = { ...(socket.auth || {}), token }
+      }
+
+      if (socket.disconnected && !socket.active) {
+        socket.connect()
+      }
+
+      return socket
+    }
+
+    socket = io(socketUrl, {
+      auth: { token },
+      reconnection,
+      reconnectionAttempts,
+      reconnectionDelay,
+      reconnectionDelayMax,
+      transports,
+      extraHeaders,
+      timeout,
+    })
     return socket
   }
   const getSocket = () => socket
@@ -34,7 +55,20 @@ export const createSocketCore = ({
       const current = socket?.connected ? socket : connect()
       if (!current) { reject(new Error('Socket initialization failed')); return }
       if (current.connected) { resolve(current); return }
-      current.once('connect', () => resolve(current))
+      const cleanup = () => {
+        current.off('connect', handleConnect)
+        current.off('connect_error', handleConnectError)
+      }
+      const handleConnect = () => {
+        cleanup()
+        resolve(current)
+      }
+      const handleConnectError = (error) => {
+        cleanup()
+        reject(error || new Error('Socket connection failed'))
+      }
+      current.once('connect', handleConnect)
+      current.once('connect_error', handleConnectError)
     }, timeoutMs, 'Socket connection timeout')
   const emitWithAck = (eventName, payload = {}, timeoutMs = 5000, failureMessage = 'Socket emit failed') =>
     withTimeout(async (resolve, reject) => {

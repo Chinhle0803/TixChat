@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import '../styles/ChatWindow.css'
-import { FiPhone, FiPhoneOff, FiVideo, FiVideoOff, FiInfo, FiMic, FiMicOff, FiPaperclip, FiSmile, FiX } from 'react-icons/fi'
+import { FiPhone, FiPhoneOff, FiVideo, FiVideoOff, FiInfo, FiMic, FiMicOff, FiPaperclip, FiSmile, FiX, FiUsers, FiMessageSquare, FiActivity, FiEdit, FiSearch } from 'react-icons/fi'
 import Message from './Message'
 import ConversationInfoPanel from './ConversationInfoPanel'
 import ShareMessageModal from './ShareMessageModal'
@@ -201,6 +201,19 @@ const ChatWindow = ({
   }, [messages])
 
   const reversedMessages = useMemo(() => [...(messages || [])].reverse(), [messages])
+  const currentConversationId = normalizeId(conversation?._id || conversation?.conversationId)
+  const incomingCallConversationId = normalizeId(callControls?.incomingCall?.conversationId)
+  const activeCallConversationId = normalizeId(callControls?.currentCall?.conversationId)
+  const availableGroupCallConversationId = normalizeId(callControls?.availableGroupCall?.conversationId)
+  const showIncomingCallBanner = Boolean(
+    callControls?.incomingCall && incomingCallConversationId === currentConversationId
+  )
+  const showCurrentCallPanel = Boolean(
+    callControls?.currentCall && activeCallConversationId === currentConversationId
+  )
+  const showAvailableGroupCallBanner = Boolean(
+    callControls?.availableGroupCall && availableGroupCallConversationId === currentConversationId
+  )
 
   const senderById = useMemo(() => {
     const map = new Map()
@@ -669,9 +682,31 @@ const ChatWindow = ({
     return isGroupConversation && adminOnlyMessaging && !canSendAsManager
   }, [conversation, currentUserGroupRole])
 
+  // Calculate stats for empty state
+  const emptyStateStats = useMemo(() => {
+    if (!conversations || conversations.length === 0) {
+      return { total: 0, groups: 0, online: 0 }
+    }
+    
+    let total = conversations.length
+    let groups = 0
+    let online = 0
+    
+    conversations.forEach(c => {
+      if (c.type === 'group') {
+        groups++
+      } else if (c.type === '1-1') {
+        const other = c.participants?.find(p => getParticipantId(p) !== normalizedCurrentUserId)
+        if (other?.isOnline) online++
+      }
+    })
+    
+    return { total, groups, online }
+  }, [conversations, normalizedCurrentUserId])
+
   const conversationId = normalizeId(conversation?._id || conversation?.conversationId)
   const isCallIdle = !callControls?.callPhase || callControls.callPhase === 'idle'
-  const canStartCall = Boolean(conversationId && isCallIdle)
+  const canStartCall = Boolean(conversationId && isCallIdle && !callControls?.availableGroupCall)
 
   const handleStartCall = async (callType) => {
     if (!canStartCall) return
@@ -701,13 +736,80 @@ const ChatWindow = ({
     }
   }
 
+  const handleJoinAvailableCall = async (callId) => {
+    try {
+      await callControls?.joinCall?.(callId || callControls?.availableGroupCall?.callId)
+    } catch (error) {
+      await notify({
+        title: 'Không thể tham gia cuộc gọi',
+        message: error?.response?.data?.error || error?.message || 'Vui lòng thử lại.',
+        confirmText: 'Đã hiểu',
+        variant: 'error',
+      })
+    }
+  }
+
   return (
-  <div className="chat-window" style={chatThemeStyle}>
+    <div className="chat-window" style={chatThemeStyle}>
       {!conversation ? (
-        <div className="no-conversation">
+        <div className="no-conversation modern-empty-state">
+          {/* Abstract Background Shapes */}
+          <div className="empty-bg-shape shape-1"></div>
+          <div className="empty-bg-shape shape-2"></div>
+          
           <div className="no-conversation-content">
-            <h2>Chọn cuộc trò chuyện</h2>
-            <p>Chọn một cuộc trò chuyện để bắt đầu trò chuyện</p>
+            <div className="empty-illustration">
+              <svg width="240" height="180" viewBox="0 0 240 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="40" y="30" width="160" height="120" rx="24" fill="var(--primary)" opacity="0.1" />
+                <rect x="60" y="50" width="90" height="24" rx="12" fill="var(--primary)" opacity="0.3" />
+                <rect x="90" y="85" width="90" height="24" rx="12" fill="var(--primary)" opacity="0.5" />
+                <rect x="60" y="120" width="60" height="24" rx="12" fill="var(--primary)" opacity="0.3" />
+                <circle cx="190" cy="140" r="16" fill="var(--primary)" />
+                <path d="M185 140l3 3 7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            
+            <h2>Chào mừng đến với TixChat</h2>
+            <p className="empty-subtitle">Chọn một cuộc trò chuyện bên trái hoặc bắt đầu cuộc trò chuyện mới.</p>
+            
+            <div className="empty-quick-actions">
+              <button className="empty-action-btn" onClick={onOpenNewConversation}>
+                <FiEdit className="btn-icon" />
+                <span>Cuộc trò chuyện mới</span>
+              </button>
+              <button className="empty-action-btn" onClick={() => onCreateGroupConversation?.()}>
+                <FiUsers className="btn-icon" />
+                <span>Tạo nhóm</span>
+              </button>
+              <button className="empty-action-btn" onClick={onOpenNewConversation}>
+                <FiSearch className="btn-icon" />
+                <span>Tìm bạn bè</span>
+              </button>
+            </div>
+            
+            <div className="empty-stats-area">
+              <div className="empty-stat-card">
+                <FiMessageSquare className="stat-icon" />
+                <div className="stat-info">
+                  <span className="stat-value">{emptyStateStats.total}</span>
+                  <span className="stat-label">Cuộc trò chuyện</span>
+                </div>
+              </div>
+              <div className="empty-stat-card">
+                <FiUsers className="stat-icon" />
+                <div className="stat-info">
+                  <span className="stat-value">{emptyStateStats.groups}</span>
+                  <span className="stat-label">Nhóm tham gia</span>
+                </div>
+              </div>
+              <div className="empty-stat-card">
+                <FiActivity className="stat-icon" />
+                <div className="stat-info">
+                  <span className="stat-value">{emptyStateStats.online}</span>
+                  <span className="stat-label">Đang trực tuyến</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -745,11 +847,11 @@ const ChatWindow = ({
             </div>
           </div>
 
-          {callControls?.incomingCall && (
+          {showIncomingCallBanner && (
             <div className="call-banner incoming">
               <div>
                 <strong>Cuộc gọi {callControls.incomingCall.callType === 'video' ? 'video' : 'thoại'} đến</strong>
-                <span>{chatHeaderName}</span>
+                <span className="call-status-waiting">{chatHeaderName}</span>
               </div>
               <div className="call-banner-actions">
                 <button type="button" className="call-decline" onClick={callControls.declineCall} title="Từ chối">
@@ -762,7 +864,24 @@ const ChatWindow = ({
             </div>
           )}
 
-          {callControls?.currentCall && (
+          {showAvailableGroupCallBanner && (
+            <div className="call-banner active-group">
+              <div>
+                <strong>Cuộc gọi nhóm đang diễn ra</strong>
+                <span className="call-status-waiting">Bạn có thể tham gia cuộc gọi này</span>
+              </div>
+              <div className="call-banner-actions">
+                <button type="button" className="call-decline" onClick={callControls.dismissAvailableGroupCall} title="Ẩn">
+                  <FiX />
+                </button>
+                <button type="button" className="call-accept" onClick={() => handleJoinAvailableCall()} title="Tham gia">
+                  <FiPhone />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showCurrentCallPanel && (
             <div className={`call-panel ${callControls.currentCall.callType}`}>
               <audio ref={callControls.audioElementRef} autoPlay />
               {callControls.currentCall.callType === 'video' && (
@@ -787,7 +906,7 @@ const ChatWindow = ({
                   <div className="call-video-overlay">
                     <div className="call-panel-info">
                       <strong>Video call</strong>
-                      <span>
+                      <span className={callControls.callPhase === 'ringing' ? 'call-status-waiting' : ''}>
                         {callControls.callPhase === 'ringing'
                           ? 'Đang đổ chuông...'
                           : callControls.callPhase === 'active'
@@ -813,7 +932,7 @@ const ChatWindow = ({
                 <>
                   <div className="call-panel-info">
                     <strong>Audio call</strong>
-                    <span>
+                    <span className={callControls.callPhase === 'ringing' ? 'call-status-waiting' : ''}>
                       {callControls.callPhase === 'ringing'
                         ? 'Đang đổ chuông...'
                         : callControls.callPhase === 'active'
@@ -869,6 +988,7 @@ const ChatWindow = ({
                   onDeleteForAll={onDeleteForAll}
                   onReact={onReactMessage}
                   onShare={handleShareMessage}
+                  onJoinCall={handleJoinAvailableCall}
                   replyPreviewMap={replyPreviewMap}
                 />
               ))

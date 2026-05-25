@@ -4,19 +4,10 @@ import useAuthStore from '../store/authStore'
 import useChatStore from '../store/chatStore'
 import { conversationService } from './api'
 import { isConversationMuted, notifyIncomingMessage } from './browserNotifications.js'
+import { isNgrokUrl, resolveSocketBaseUrl } from '../utils/runtimeUrl.js'
 
-const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '')
-
-const resolveDefaultSocketUrl = () => {
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
-    return `${protocol}//${window.location.hostname}:5000`
-  }
-
-  return 'http://localhost:5000'
-}
-
-const SOCKET_URL = normalizeBaseUrl(import.meta.env.VITE_SOCKET_URL || resolveDefaultSocketUrl())
+const SOCKET_URL = resolveSocketBaseUrl(import.meta.env.VITE_SOCKET_URL)
+const socketTransports = isNgrokUrl(SOCKET_URL) ? ['websocket'] : undefined
 
 let socket = null
 let socketCore = null
@@ -59,6 +50,7 @@ export const initSocket = () => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: 5,
+      transports: socketTransports,
     })
   }
 
@@ -228,10 +220,16 @@ export const setupSocketListeners = (socket) => {
     const messageId = data.message?._id || data.message?.messageId || data.messageId
     if (!messageId) return
 
+    if (data.message) {
+      useChatStore.getState().updateMessage(messageId, data.message)
+      return
+    }
+
     useChatStore.getState().updateMessage(messageId, {
-      content: data.message?.content || data.content,
-      isEdited: data.message?.isEdited ?? data.isEdited ?? true,
-      editedAt: data.message?.editedAt || data.editedAt || Date.now(),
+      content: data.content,
+      metadata: data.metadata,
+      isEdited: data.isEdited ?? true,
+      editedAt: data.editedAt || Date.now(),
     })
   })
 

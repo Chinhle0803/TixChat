@@ -3,6 +3,8 @@ package com.tixchat.mobile.chime
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.AttendeeInfo
 import com.amazonaws.services.chime.sdk.meetings.audiovideo.AudioVideoObserver
@@ -166,7 +168,7 @@ class TixChimeMeetingModule(
     pendingStartPromise = null
 
     if (missingPermission) {
-      val message = "Camera/microphone/audio permissions are required for calls"
+      val message = "Bạn cần cấp quyền camera, micro và âm thanh để sử dụng cuộc gọi"
       eventEmitter.sendError(message, "PERMISSION_DENIED")
       promise?.reject("PERMISSION_DENIED", message)
       return true
@@ -187,9 +189,8 @@ class TixChimeMeetingModule(
     audioVideo.addDeviceChangeObserver(this)
     audioVideo.start()
     audioVideo.startRemoteVideo()
-    if (pendingStartVideo) {
-      audioVideo.startLocalVideo()
-    }
+    // Do NOT call startLocalVideo() here — the audio session hasn't started yet.
+    // It will be started in onAudioSessionStarted() once the media pipeline is ready.
     chooseDefaultSpeakerForVideo()
     emitAudioRoute()
   }
@@ -310,6 +311,13 @@ class TixChimeMeetingModule(
     payload.putBoolean("reconnecting", reconnecting)
     eventEmitter.send(TixChimeEventEmitter.EVENT_MEETING_STARTED, payload)
     emitAudioRoute()
+    if (!reconnecting && pendingStartVideo) {
+      // Delay briefly to let the media pipeline fully initialize before starting
+      // local video capture — avoids the tile arriving in a paused state.
+      Handler(Looper.getMainLooper()).postDelayed({
+        meetingSession?.audioVideo?.startLocalVideo()
+      }, 300)
+    }
   }
 
   override fun onAudioSessionStopped(sessionStatus: MeetingSessionStatus) {

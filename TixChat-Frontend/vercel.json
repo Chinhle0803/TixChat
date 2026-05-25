@@ -3,15 +3,10 @@
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "headers": [
+  "rewrites": [
     {
-      "source": "/socket.io/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        }
-      ]
+      "source": "/((?!api|assets|socket.io|favicon.ico|logo.png|vite.svg).*)",
+      "destination": "/index.html"
     }
   ]
 }
